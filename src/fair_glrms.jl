@@ -5,13 +5,13 @@
 """
     partition_groups(A, s::Int)
 
-Partitions the data matrix `A`` into sub-matrices according to their value in
+Partitions the data matrix `A` into sub-matrices according to their value in
 the `s`-th column. For example, given the matrix
 
-[[1, 2, 3],
- [2, 2, 1],
- [3, 1, 2],
- [4, 0, 0]]
+[1 2 3
+ 2 2 1
+ 3 1 2
+ 4 0 0]
 
 partition_groups(A, 2) would create three sub-matrices(/vectors). These would be
 [[4, 0, 0]]   --> for the category "0"
@@ -28,7 +28,9 @@ function partition_groups(A, s::Int)
     # Define the groups. The element type for all keys and values is the
     # element type of `A`.
     groups = Dict{eltype(A), Vector{Array{eltype(A)}}}()
-    for row in A
+    num_rows = size(A)[1]
+    for r in 1:num_rows
+        row = A[r, :]
         # Get the unique value `k` (see the docstring for more detail)
         k = row[s]
         # The dictionary doesn't yet have this key - add it to the dictionary
