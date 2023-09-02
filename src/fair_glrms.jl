@@ -2,6 +2,22 @@
 # Buet-Golfouse and Utyagulov. It extends GLRMs towards notions of fairness
 # using group functionals in place of the loss function in a GLRM.
 
+### FAIR GLRM TYPE
+mutable struct FairGLRM<:AbstractGLRM
+    A                                   # The data table
+    losses::Array{Loss,1}               # array of loss functions
+    rx::Array{Regularizer,1}            # Array of regularizers to be applied to each column of X
+    ry::Array{Regularizer,1}            # Array of regularizers to be applied to each column of Y
+    k::Int                              # Desired rank
+    observed_features::ObsArray         # for each example, an array telling which features were observed
+    observed_examples::ObsArray         # for each feature, an array telling in which examples the feature was observed
+    X::AbstractArray{Float64,2}         # Representation of data in low-rank space. A ≈ X'Y
+    Y::AbstractArray{Float64,2}         # Representation of features in low-rank space. A ≈ X'Y
+    Z                                   # A Dict that separates the data table by a given protected characteristic
+    protected_category                  # The protected characteristic with which to separate the data for Z
+    group_functional::GroupFunctional   # The group functional that brings together all separate losses
+end
+
 """
     partition_groups(A, s::Int)
 
@@ -27,7 +43,7 @@ all the rows in `A` whose value in the `s`-th column is `k`.
 function partition_groups(A, s::Int)
     # Define the groups. The element type for all keys and values is the
     # element type of `A`.
-    groups = Dict{eltype(A), Vector{Array{eltype(A)}}}()
+    groups = Dict{eltype(A[:, s]), Set{Int64}}()
     num_rows = size(A)[1]
     for r in 1:num_rows
         row = A[r, :]
@@ -35,12 +51,68 @@ function partition_groups(A, s::Int)
         k = row[s]
         # The dictionary doesn't yet have this key - add it to the dictionary
         if !haskey(groups, k)
-            groups[k] = [row]
+            groups[k] = Set(r)
         # The dictionary already has this key - push this row to the existing
         # vector
         else
-            push!(groups[k], row)
+            push!(groups[k], r)
         end
     end
     groups
+end
+
+function fair_GLRM(A, losses::Array, rx::Array, ry::Array, k::Int, s::Int, group_functional::GroupFunctional;
+    # the following tighter definition fails when you form an array of a tighter subtype than the abstract type, eg Array{QuadLoss,1}
+    # function GLRM(A::AbstractArray, losses::Array{Loss,1}, rx::Array{Regularizer,1}, ry::Array{Regularizer,1}, k::Int;
+                  X = randn(k,size(A,1)), Y = randn(k,embedding_dim(losses)),
+                  obs = nothing,                                    # [(i₁,j₁), (i₂,j₂), ... (iₒ,jₒ)]
+                  observed_features = fill(1:size(A,2), size(A,1)), # [1:n, 1:n, ... 1:n] m times
+                  observed_examples = fill(1:size(A,1), size(A,2)), # [1:m, 1:m, ... 1:m] n times
+                  offset = false, scale = false,
+                  checknan = true, sparse_na = true)
+    # Check dimensions of the arguments
+    m,n = size(A)
+    if length(losses)!=n error("There must be as many losses as there are columns in the data matrix") end
+    if length(rx)!=m error("There must be either one X regularizer or as many X regularizers as there are rows in the data matrix") end
+    if length(ry)!=n error("There must be either one Y regularizer or as many Y regularizers as there are columns in the data matrix") end
+    if size(X)!=(k,m) error("X must be of size (k,m) where m is the number of rows in the data matrix. This is the transpose of the standard notation used in the paper, but it makes for better memory management. \nsize(X) = $(size(X)), size(A) = $(size(A)), k = $k") end
+    if size(Y)!=(k,embedding_dim(losses)) error("Y must be of size (k,d) where d is the sum of the embedding dimensions of all the losses. \n(1 for real-valued losses, and the number of categories for categorical losses).") end
+
+    Z = partition_groups(A, s)
+
+    # Determine observed entries of data
+    if obs===nothing && sparse_na && isa(A,SparseMatrixCSC)
+        obs = findall(!iszero, A) # observed indices (list of CartesianIndices)
+    end
+    if obs===nothing # if no specified array of tuples, use what was explicitly passed in or the defaults (all)
+        # println("no obs given, using observed_features and observed_examples")
+        glrm = FairGLRM(A,losses,rx,ry,k, observed_features, observed_examples, X,Y, Z, s, group_functional)
+    else # otherwise unpack the tuple list into arrays
+        # println("unpacking obs into array")
+        glrm = FairGLRM(A,losses,rx,ry,k, sort_observations(obs,size(A)...)..., X,Y, Z, s, group_functional)
+    end
+
+    # check to make sure X is properly oriented
+    if size(glrm.X) != (k, size(A,1))
+        # println("transposing X")
+        glrm.X = glrm.X'
+    end
+    # check none of the observations are NaN
+    if checknan
+        for i=1:size(A,1)
+            for j=glrm.observed_features[i]
+                if isnan(A[i,j])
+                    error("Observed value in entry ($i, $j) is NaN.")
+                end
+            end
+        end
+    end
+
+    if scale # scale losses (and regularizers) so they all have equal variance
+        equilibrate_variance!(glrm)
+    end
+    if offset # don't penalize the offset of the columns
+        add_offset!(glrm)
+    end
+    return glrm
 end
