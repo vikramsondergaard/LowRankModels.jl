@@ -4,7 +4,7 @@ import LinearAlgebra.BLAS: gemm!
 
 abstract type AbstractGLRM end
 
-export AbstractGLRM, GLRM, getindex, size, scale_regularizer!
+export AbstractGLRM, GLRM, getindex, size, scale_regularizer!, ObsArray
 
 const ObsArray = Union{Array{Array{Int,1},1}, Array{UnitRange{Int},1}}
 
