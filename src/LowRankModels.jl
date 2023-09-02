@@ -20,6 +20,7 @@ include("losses.jl")
 include("impute_and_err.jl")
 include("regularizers.jl")
 include("convergence.jl")
+include("group_functionals.jl")
 
 # define basic data type(s)
 include("glrm.jl")
