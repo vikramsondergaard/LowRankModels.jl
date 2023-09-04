@@ -2,7 +2,7 @@
 # Buet-Golfouse and Utyagulov. It extends GLRMs towards notions of fairness
 # using group functionals in place of the loss function in a GLRM.
 
-export FairGLRM, find_group
+export FairGLRM, find_group, partition_groups
 
 ### FAIR GLRM TYPE
 mutable struct FairGLRM<:AbstractGLRM
@@ -63,9 +63,9 @@ function partition_groups(A, s::Int)
             push!(groups[k], r)
         end
     end
-    group_vals = values(groups)
-    ordered_group_vals = convert(Vector, group_vals)
-    ordered_group_vals
+    group_vals = []
+    for k in keys(groups) push!(group_vals, groups[k]) end
+    group_vals
 end
 
 function FairGLRM(A, losses::Array, rx::Array, ry::Array, k::Int, s::Int, group_functional::GroupFunctional;
