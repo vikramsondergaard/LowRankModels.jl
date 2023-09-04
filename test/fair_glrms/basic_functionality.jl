@@ -22,7 +22,9 @@ rx, ry = ZeroReg(), ZeroReg()
 protected_characteristic_idx = 1
 num_protected_categories = 4
 
-fglrm = FairGLRM(A,losses,rx,ry,k,protected_characteristic_idx,StandardGroupLoss(num_protected_categories),
+groups = partition_groups(A, protected_characteristic_idx)
+
+fglrm = FairGLRM(A,losses,rx,ry,k,protected_characteristic_idx,WeightedLogSumExponentialLoss(1, [length(groups[i]) / m for i=1:num_protected_categories]),
                  scale=false, offset=false, X=randn(k,m), Y=randn(k,n));
 
 p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
