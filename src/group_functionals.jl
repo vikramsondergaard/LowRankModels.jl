@@ -294,15 +294,15 @@ function evaluate(l::WeightedLogSumExponentialLoss, fglrm::FairGLRM, XY)
     err
 end
 
-function evaluate(l::WeightedLogSumExponentialLoss, fglrm::FairGLRM, XY, A; yidxs = get_yidxs(fglrm.losses))
+function evaluate(l::WeightedLogSumExponentialLoss, fglrm::FairGLRM, XY, A; losses = fglrm.losses, yidxs = get_yidxs(losses))
     @assert α > 0
     validate_weights(l)
     err = 0.0
     m,n = size(A)
     for i=1:m
         k = find_group(fglrm, i)
-        for j in fglrm.observed_features[i]
-            err += exp(l.α * z(fglrm.losses[j], XY[i, yidxs[j]], A[i, j], length(fglrm.Z[k])) * l.weights[k])
+        for j=1:n
+            err += exp(l.α * z(losses[j], XY[i, yidxs[j]], A[i, j], length(fglrm.Z[k])) * l.weights[k])
         end
     end
     log(err) / l.α
