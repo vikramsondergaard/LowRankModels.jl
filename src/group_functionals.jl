@@ -283,22 +283,24 @@ mutable struct WeightedLogSumExponentialLoss<:WeightedGroupFunctional
     weights::Array{Float64}
 end
 
-function evaluate(l::WeightedLogSumExponentialLoss, losses::Array{Loss, 1}, XY, A, Z, observed_features; yidxs = get_yidxs(losses))
+function evaluate(l::WeightedLogSumExponentialLoss, losses::Array{Loss, 1}, XY,
+                  A, Z, observed_features;
+                  yidxs = get_yidxs(losses))
     @assert l.α > 0
     validate_weights(l)
-    m,n = size(A)
-    err = 0.0
-    for i=1:m
-        k = 0
-        for (e, group) in enumerate(Z)
-            if i in group k = e; break end
+    ∑ₖwₖeᵅᶻ = 0.0
+    for (k, group) in enumerate(Z)
+        z_k = 0.0
+        size_Ωₖ = length(group)
+        for i in group
+            for j in observed_features[i]
+                z_k += z(losses[j], XY[i, yidxs[j]], A[i, j], size_Ωₖ)
+            end
         end
-        for j in observed_features[i]
-            z_ij = z(losses[j], XY[i, yidxs[j]], A[i, j], length(Z[k]))
-            err += exp(l.α * z_ij) * l.weights[k]
-        end
+        eᵅᶻᵏ = exp(l.α * z_k)
+        ∑ₖwₖeᵅᶻ += l.weights[k] * eᵅᶻᵏ
     end
-    log(err) / l.α
+    log(∑ₖwₖeᵅᶻ) / l.α
 end
 
 # function grad(l::WeightedLogSumExponentialLoss, losses::Array{Loss, 1}, XY, A, Z; yidxs = get_yidxs(losses))
@@ -307,7 +309,7 @@ end
 #     gradient / denom
 # end
 
-function grad_x(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
+function grad(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
                 XY, A, Z, observed_features; 
                 yidxs = get_yidxs(losses))
     k_i = 0
@@ -370,16 +372,16 @@ end
 #     return grad(loss, u, a) * w_k * e / (l.denom * size_Ωₖ)
 # end
 
-function grad_y(l::WeightedLogSumExponentialLoss, fglrm::FairGLRM, XY, j)
-    gradient = 0.0
-    normalised_den = sum([l.weights[k] * exp(l.α * z(fglrm, XY, k)) for k=1:size(fglrm.Z)[1]])
-    loss = fglrm.losses[j]
-    yidx = get_yidxs(fglrm.losses)[j]
-    for k=1:size(fglrm.Z)[1]
-        dT_dz_k = l.weights[k] * exp(l.α * z(fglrm, XY, k)) / normalised_den
-        magnitude_Ωₖ = length(fglrm.Z[k])
-        dz_k_dy_j = sum([grad(loss, XY[i, yidx], fglrm.A[i, j]) * XY[i, yidx] for i in fglrm.Z[k]])
-        gradient += dT_dz_k * dz_k_dy_j / magnitude_Ωₖ
-    end
-    gradient
-end
+# function grad_y(l::WeightedLogSumExponentialLoss, fglrm::FairGLRM, XY, j)
+#     gradient = 0.0
+#     normalised_den = sum([l.weights[k] * exp(l.α * z(fglrm, XY, k)) for k=1:size(fglrm.Z)[1]])
+#     loss = fglrm.losses[j]
+#     yidx = get_yidxs(fglrm.losses)[j]
+#     for k=1:size(fglrm.Z)[1]
+#         dT_dz_k = l.weights[k] * exp(l.α * z(fglrm, XY, k)) / normalised_den
+#         magnitude_Ωₖ = length(fglrm.Z[k])
+#         dz_k_dy_j = sum([grad(loss, XY[i, yidx], fglrm.A[i, j]) * XY[i, yidx] for i in fglrm.Z[k]])
+#         gradient += dT_dz_k * dz_k_dy_j / magnitude_Ωₖ
+#     end
+#     gradient
+# end
