@@ -294,6 +294,9 @@ function evaluate(l::WeightedLogSumExponentialLoss, losses::Array{Loss, 1}, XY,
         size_Ωₖ = length(group)
         for i in group
             for j in observed_features[i]
+                display(typeof(losses))
+                display(typeof(XY))
+                display(typeof(A))
                 z_k += z(losses[j], XY[i, yidxs[j]], A[i, j], size_Ωₖ)
             end
         end
@@ -314,7 +317,7 @@ function grad(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
                 yidxs = get_yidxs(losses))
     k_i = 0
     for (k, group) in enumerate(Z)
-        if (i in group) (k_i = k; break) end
+        if (i in group) k_i = k; break end
     end
     size_Ωₖ₍ᵢ₎ = length(Z[k_i])
     z_ki = 0.0
