@@ -25,6 +25,7 @@ include("group_functionals.jl")
 # define basic data type(s)
 include("glrm.jl")
 include("shareglrm.jl")
+include("fair_glrms.jl")
 
 # modify models (eg scaling and offsets) and evaluate fit
 include("modify_glrm.jl")
@@ -49,7 +50,6 @@ include("simple_glrms.jl")
 include("cross_validate.jl")
 include("fit_dataframe.jl")
 include("sample.jl")
-include("fair_glrms.jl")
 # this takes to long to load for normal use
 # include("plot.jl")
 
