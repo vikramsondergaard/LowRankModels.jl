@@ -60,7 +60,7 @@ function row_objective(fglrm::FairGLRM, i::Int, x::AbstractArray, Y::Array{Float
                        include_regularization=true)
     XY = x'*Y
     # Use the provided group functional to evaluate the total loss
-    err = evaluate(fglrm.group_functional, fglrm, XY, fglrm.A[i, fglrm.observed_features[i]])
+    err = evaluate(fglrm.group_functional, fglrm.losses, XY[1, :], fglrm.A[i, :], [Set([i])], fglrm.observed_features[i], yidxs=yidxs)
     # add regularization penalty
     if include_regularization
         err += evaluate(fglrm.rx[i], x)
@@ -88,18 +88,16 @@ end
 
 function col_objective(fglrm::FairGLRM, j::Int, y::AbstractArray, X::Array{Float64,2} = fglrm.X;
                        include_regularization=true)
-    m,n = size(glrm.A)
     sz = size(y)
     if length(sz) == 1 colind = 1 else colind = 1:sz[2] end
-    err = 0.0
     XY = X'*y
     obsex = fglrm.observed_examples[j]
     @inbounds XYj = XY[obsex,colind]
     @inbounds Aj = convert(Array, fglrm.A[obsex,j])
-    err += evaluate(fglrm.group_functional, fglrm, XYj, Aj, losses=[fglrm.losses[j]])
+    err = evaluate(fglrm.group_functional, fglrm.losses[colind], XYj, Aj, fglrm.Z, fglrm.observed_features[obsex, j], yidxs=[get_yidxs(fglrm.losses)[j]])
     # add regularization penalty
     if include_regularization
-        err += evaluate(glrm.ry[j], y)
+        err += evaluate(fglrm.ry[j], y)
     end
     return err
 end
