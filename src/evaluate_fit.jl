@@ -132,6 +132,7 @@ function objective(glrm::GLRM, X::Array{Float64,2}, Y::Array{Float64,2};
 end
 # Or just the GLRM and `objective` will use glrm.X and .Y
 objective(glrm::GLRM; kwargs...) = objective(glrm, glrm.X, glrm.Y; kwargs...)
+objective(fglrm::FairGLRM; kwargs...) = objective(fglrm, fglrm.X, fglrm.Y; kwargs...)
 
 # For shared arrays
 # TODO: compute objective in parallel
