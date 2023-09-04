@@ -3,7 +3,7 @@ import Optim: optimize, LBFGS
 
 export GroupFunctional, WeightedGroupFunctional, UnweightedGroupFunctional,
        StandardGroupLoss, MinMaxLoss, WeightedLPNormLoss, PenalisedLearningLoss,
-       evaluate, grad, grad_x, grad_y
+       WeightedLogSumExponentialLoss, evaluate, grad, grad_x, grad_y
 
 abstract type GroupFunctional end                               # The GroupFunctional type
 abstract type WeightedGroupFunctional<:GroupFunctional end      # GroupFunctional instances including weight vectors
@@ -285,7 +285,6 @@ mutable struct WeightedLogSumExponentialLoss<:WeightedGroupFunctional
     α::Float64
     weights::Array{Float64}
 end
-WeightedLogSumExponentialLoss(k::Int64, α::Float64; weights::Array{Float64}=fill(1.0/k, k)) = WeightedLogSumExponentialLoss(k, α, weights)
 
 function evaluate(l::WeightedLogSumExponentialLoss, fglrm::FairGLRM, XY)
     @assert α > 0
