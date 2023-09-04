@@ -3,7 +3,7 @@ import Optim: optimize, LBFGS
 
 export GroupFunctional, WeightedGroupFunctional, UnweightedGroupFunctional,
        StandardGroupLoss, MinMaxLoss, WeightedLPNormLoss, PenalisedLearningLoss,
-       evaluate
+       evaluate, grad, grad_x, grad_y
 
 abstract type GroupFunctional end                               # The GroupFunctional type
 abstract type WeightedGroupFunctional<:GroupFunctional end      # GroupFunctional instances including weight vectors
@@ -25,96 +25,234 @@ function validate_weights(l::WeightedGroupFunctional)
     @assert isapprox(sum(l.weights), 1.0, atol=0.01)
     # Check criterion 1
     for w in l.weights
-        @assert w > 0
+        @assert w >= 0
     end
+end
+
+"""
+Computes zₖ as per the definition in "Towards Fair Unsupervised Learning".
+
+# Parameters
+- `fglrm::FairGLRM`: The Fair GLRM. This is needed to get information about the
+                     division of groups among the data, the observed features
+                     in the Fair GLRM, and the loss functions corresponding to
+                     each column of data.
+- `XY`:              The computed matrix product of X and Y.
+- `k`:               The given group for which zₖ will be computed.
+
+# Returns
+The value of zₖ.
+"""
+function z(fglrm::FairGLRM, XY, k)
+    groups = fglrm.Z[k]
+    # Get the y indices corresponding to each loss function
+    yidxs = get_yidxs(fglrm.losses)
+    z = 0.0
+    # Need to get the magnitude of Ωₖ to be able to normalise the loss
+    magnitude_Ωₖ = size(groups)[1]
+    for i in groups
+        # Note that we only care about the features observed by the actual GLRM
+        for j in fglrm.observed_features[i]
+            # Add each loss to the total loss
+            z += evaluate(fglrm.losses[j], XY[i, yidxs[j]], A[i, j])
+        end
+    end
+    # Normalise the loss value corresponding to the size of the data belonging
+    # to the given group
+    z / magnitude_Ωₖ
+end
+
+z(loss, u, a, magnitude_Ωₖ) = evaluate(loss, u, a) / magnitude_Ωₖ
+
+"""
+Computes the gradient of zₖ. This is useful for several gradients.
+
+# Parameters
+- `fglrm::FairGLRM`: The Fair GLRM. This is needed to get information about the
+                     division of groups among the data, the observed features
+                     in the Fair GLRM, and the loss functions corresponding to
+                     each column of data.
+- `XY`:              The computed matrix product of X and Y.
+- `k`:               The given group for which the gradient of zₖ will be 
+                     computed.
+
+# Returns
+The gradient of zₖ.
+"""
+function grad_z(fglrm::FairGLRM, XY, k)
+    # Get the y indices corresponding to each loss function
+    yidxs = get_yidxs(fglrm.losses)
+    # Need to get the magnitude of Ωₖ to be able to normalise the gradient
+    magnitude_Ωₖ = size(fglrm.Z[k])[1]
+    grad = 0.0
+    for i in fglrm.Z[k]
+        # Note that we only care about the features observed by the actual GLRM
+        for j in observed_features[i]
+            # Add each individual gradient to the total gradient
+            grad += grad(fglrm.losses[j], XY[i, yidxs[j]], A[i, j])
+        end
+    end
+    # Normalise the gradient value corresponding to the size of the data
+    # belonging to the given group
+    grad / magnitude_Ωₖ
 end
 
 ######################## EXAMPLES #########################
 
-### STANDARD GROUP LOSS ###
+"""
+The standard group loss. This computes ∑ₖ wₖzₖ for k ∈ [1, K].
+
+# Parameters
+- `weights::Array{Float64}`: The weights with which to compute the weighted sum
+                             of each individual loss.
+"""
 mutable struct StandardGroupLoss<:WeightedGroupFunctional
-    k::Int64                     # The number of groups in the data according to a given protected characteristic
     weights::Array{Float64}      # The weights applied to each element of the group
 end
 
 """
-A group functional that weights the loss for each group and sums them together.
+Evaluates the standard group loss.
 
 # Parameters
-- `k::Int64`:                The number of groups in the group functional
-- `weights::Array{Float64}`: The weights for each groupwise loss. The default value
-                             is the uniform distribution, which corresponds to the
-                             *reweighed* GLRM. To recover a standard GLRM, one can set
-                             `weights` to be wₖ = |Ωₖ|/|Ω|.
-"""
-StandardGroupLoss(k::Int64; weights::Array{Float64}=fill(1.0/k, k)) = StandardGroupLoss(k, weights)
-
-"""
-# Parameters
-- `l::StandardGroupLoss`:   The given loss instance.
-- `groups::Array{Float64}`: The given groupwise losses.
+- `l::StandardGroupLoss`: The given loss instance.
+- `fglrm::FairGLRM`:      The Fair GLRM. This is needed to get information about the
+                          division of groups among the data, the observed features
+                          in the Fair GLRM, and the loss functions corresponding to
+                          each column of data.
+- `XY`:                   The computed matrix product of X and Y.
 
 # Returns
 The total error for a given array of groupwise losses according to the
 StandardGroupLoss rules.
 """
-function evaluate(l::StandardGroupLoss, groups::Array{Float64})
+function evaluate(l::StandardGroupLoss, fglrm::FairGLRM, u::Real, a::Number, i::Int64, j::Int64)
+    # Need to validate the weights vector because it is a weighted group loss
     validate_weights(l)
-    total_err = sum([groups[i] * l.weights[i] for i=1:l.k])
-    total_err
+    k = find_group(fglrm, i)
+    evaluate(l, fglrm, u, a, i, j, k)
 end
 
-### MINMAX LOSS ###
+function evaluate(l::StandardGroupLoss, fglrm::FairGLRM, u::Real, a::Number, i::Int64, j::Int64, k::Int64; val_weights::Bool=false)
+    if val_weights validate_weights(l) end
+    l.weights[k] * z(get_yidxs(fglrm.losses)[j], u, a, length(fglrm.Z[k]))
+end
+
+"""
+Computes the gradient of the standard group loss.
+
+# Parameters
+- `l::StandardGroupLoss`: The given loss instance.
+- `fglrm::FairGLRM`:      The Fair GLRM. This is needed to get information about the
+                          division of groups among the data, the observed features
+                          in the Fair GLRM, and the loss functions corresponding to
+                          each column of data.
+- `XY`:                   The computed matrix product of X and Y.
+
+# Returns
+The gradient for a given array of groupwise losses according to the
+standard group loss rules.
+"""
+grad(l::StandardGroupLoss, fglrm::FairGLRM, XY) =
+ sum([l.weights[k] * grad_z(fglrm, XY, k) for k=1:size(fglrm.Z)[1]]) # ∑ₖ wₖ∇zₖ for k ∈ [1,K]
+
+"""
+The MinMax group loss. This computes maxₖ(zₖ) for k ∈ [1, K].
+"""
 mutable struct MinMaxLoss<:UnweightedGroupFunctional end
-"""
-A group functional that returns the maximum loss out of all the groupwise
-losses.
-"""
-MinMaxLoss() = MinMaxLoss()
 
 """
+Evaluates the MinMax group loss.
+
 # Parameters
-- `l::MinMaxLoss`:          The given loss instance.
-- `groups::Array{Float64}`: The given groupwise losses.
+- `l::MinMaxLoss`:   The given loss instance.
+- `fglrm::FairGLRM`: The Fair GLRM. This is needed to get information about the
+                     division of groups among the data, the observed features
+                     in the Fair GLRM, and the loss functions corresponding to
+                     each column of data.
+- `XY`:              The computed matrix product of X and Y.
 
 # Returns
 The total error for a given array of groupwise losses according to the
-MinMaxLoss rules.
+MinMax group loss rules.
 """
-evaluate(l::MinMaxLoss, groups::Array{Float64}) = max(groups)
+evaluate(l::MinMaxLoss, fglrm::FairGLRM, XY) = max([z(fglrm, XY, k) for k=1:size(fglrm.Z)[1]]) # maxₖ(zₖ) for k ∈ [1, K]
 
-### WEIGHTED LP NORM LOSS ###
-mutable struct WeightedLPNormLoss<:WeightedGroupFunctional
-    p::Int64
-    k::Int64
+"""
+The weighted Lᵖ group loss. This computes (∑ₖ wₖzₖᵖ)^(1/p) for k ∈ [1, K].
+
+# Parameters
+- `weights::Array{Float64}`: The weights with which to compute the weighted sum
+                             of each individual loss.
+- `p::Float64`:              The type of norm to compute.
+"""
+mutable struct WeightedLᵖNormLoss<:WeightedGroupFunctional
     weights::Array{Float64}
+    p::Float64
 end
 
-WeightedLPNormLoss(p::Int64, k::Int64; weights::Array{Float64}=fill(1.0/k, k)) = WeightedLPNormLoss(p, k, weights)
-
 """
-# Parameters
-- `l::WeightedLPNormLoss`:  The given loss instance.
-- `groups::Array{Float64}`: The given groupwise losses.
+Evaluates the weighted Lᵖ group loss.
 
+# Parameters
+- `l::WeightedLᵖNormLoss`: The given loss instance.
+- `fglrm::FairGLRM`:       The Fair GLRM. This is needed to get information about the
+                           division of groups among the data, the observed features
+                           in the Fair GLRM, and the loss functions corresponding to
+                           each column of data.
+- `XY`:                    The computed matrix product of X and Y.
+ 
 # Returns
 The total error for a given array of groupwise losses according to the
-WeightedLPNormLoss rules.
+weighted Lᵖ group loss rules.
 """
-function evaluate(l::WeightedLPNormLoss, groups::Array{Float64})
+function evaluate(l::WeightedLᵖNormLoss, fglrm::FairGLRM, XY)
+    # Need to validate the weights vector because it is a weighted group loss
     validate_weights(l)
-    total_err = sum([groups[i]^p * l.weights[i] for i=1:l.k])^(1.0/p)
+    # (∑ₖ wₖzₖᵖ)^(1/p) for k ∈ [1, K]
+    total_err = sum([l.weights[k] * z(fglrm, XY, k)^l.p for k=1:size(fglrm.Z)[1]])^(1.0/l.p)
     total_err
 end
 
-# Penalised learning
-mutable struct PenalisedLearningLoss<:WeightedGroupFunctional
-    k::Int64
-    λ::Float64
-    weights::Array{Float64}
-    d::Function{Float64, Float64}
+"""
+Computes the gradient of the weighted Lᵖ norm group loss.
+
+# Parameters
+- `l::WeightedLᵖNormLoss`: The given loss instance.
+- `fglrm::FairGLRM`:       The Fair GLRM. This is needed to get information about the
+                           division of groups among the data, the observed features
+                           in the Fair GLRM, and the loss functions corresponding to
+                           each column of data.
+- `XY`:                    The computed matrix product of X and Y.
+
+# Returns
+The gradient for a given array of groupwise losses according to the
+weighted Lᵖ norm group loss rules.
+"""
+function grad(l::WeightedLᵖNormLoss, fglrm::FairGLRM, XY)
+    # This is computed from the chain product rule
+    inner_sum = sum([l.weights[k] * z(fglrm, XY, k)^(p-1) for k=1:size(fglrm.Z)[1]])
+    outer_sum = sum([l.weights[k] * z(fglrm, XY, k)^(p) for k=1:size(fglrm.Z)[1]])^(1/p - 1)
+    # This is computed from the chain product of the inner sum
+    gradient = sum([grad_z(fglrm, XY, k) for k=1:size(fglrm.Z)[1]])
+    inner_sum * outer_sum * gradient
 end
-PenalisedLearningLoss(k::Int64, λ::Float64; weights::Array{Float64}=fill(1.0/k, k), d::Function{Float64, Float64}=x,y->abs(x - y)) = PenalisedLearningLoss(k, λ, weights, d)
+
+"""
+The penalised learning group loss. This computes ∑ₖ wₖzₖ + λ∑ₖ₁ₖ₂ d(zₖ₁, zₖ₂) for k, k₁, k₂ ∈ [1, K].
+
+# Parameters
+- `weights::Array{Float64}`: The weights with which to compute the weighted sum
+                             of each individual loss.
+- `λ::Float64`:              The trade-off between the loss and the distance penalty.
+- `d::Function`:             The chosen distance penalty.
+- `d_grad::Function`:        The gradient of the chosen distance
+"""
+mutable struct PenalisedLearningLoss<:WeightedGroupFunctional
+    weights::Array{Float64}
+    λ::Float64
+    d::Function
+    d_grad::Function
+end
 
 """
 # Parameters
@@ -125,10 +263,84 @@ PenalisedLearningLoss(k::Int64, λ::Float64; weights::Array{Float64}=fill(1.0/k,
 The total error for a given array of groupwise losses according to the
 PenalisedLearningLoss rules.
 """
-function evaluate(l::PenalisedLearningLoss, groups::Array{Float64})
+function evaluate(l::PenalisedLearningLoss, fglrm::FairGLRM, XY)
     validate_weights(l)
     @assert l.λ > 0
-    err = sum([groups[i] * l.weights[i] for i=1:l.k])
-    penalty = l.λ * sum([d(groups[i], groups[j]) for i=1:l.k, j=1:l.k])
+    err = sum([l.weights[k] * z(fglrm, XY, k) for k=1:size(fglrm.Z)[1]])
+    penalty = l.λ * sum([d(z(fglrm, XY, k), z(fglrm, XY, k_prime)) for k=1:size(fglrm.Z)[1], k_prime=1:size(fglrm.Z)[1]])
     err + penalty
+end
+
+function grad(l::PenalisedLearningLoss, fglrm::FairGLRM, XY)
+    gradient = sum([l.weights[k] * grad_z(fglrm, XY, k) for k=1:size(fglrm.Z)[1]])
+    for k=1:size(fglrm.Z)[1]
+        for k_prime=1:size(fglrm.Z)[1]
+            gradient += l.λ * d_grad(z(fglrm, XY, k), z(fglrm, XY, k_prime))
+        end
+    end
+    gradient
+end
+
+mutable struct WeightedLogSumExponentialLoss<:WeightedGroupFunctional
+    α::Float64
+    weights::Array{Float64}
+end
+WeightedLogSumExponentialLoss(k::Int64, α::Float64; weights::Array{Float64}=fill(1.0/k, k)) = WeightedLogSumExponentialLoss(k, α, weights)
+
+function evaluate(l::WeightedLogSumExponentialLoss, fglrm::FairGLRM, XY)
+    @assert α > 0
+    validate_weights(l)
+    err = log(sum([exp(l.α * z(fglrm, XY, k)) * l.weights[k] for k=1:size(fglrm.Z)[1]])) / l.α
+    err
+end
+
+function evaluate(l::WeightedLogSumExponentialLoss, fglrm::FairGLRM, XY, A; yidxs = get_yidxs(fglrm.losses))
+    @assert α > 0
+    validate_weights(l)
+    err = 0.0
+    m,n = size(A)
+    for i=1:m
+        k = find_group(fglrm, i)
+        for j in fglrm.observed_features[i]
+            err += exp(l.α * z(fglrm.losses[j], XY[i, yidxs[j]], A[i, j], length(fglrm.Z[k])) * l.weights[k])
+        end
+    end
+    log(err) / l.α
+end
+
+function grad(l::WeightedLogSumExponentialLoss, fglrm::FairGLRM, XY)
+    gradient = sum([l.weights[k] * grad_z(fglrm, XY, k) * exp(l.α * z(fglrm, XY, k)) for k=1:size(fglrm.Z)[1]])
+    denom = sum([l.weights[k] * exp(l.α * z(fglrm, XY, k)) for k=1:size(fglrm.Z)[1]])
+    gradient / denom
+end
+
+function grad_x(l::WeightedLogSumExponentialLoss, fglrm::FairGLRM, XY, i)
+    yidxs = get_yidxs(fglrm.losses)
+    k_i = 0
+    for k in fglrm.Z
+        if i in fglrm.Z[k]
+            k_i = k
+            break
+        end
+    end
+    dT_dz_ki_num = l.weights[k_i] * exp(l.α * z(fglrm, XY[i, :], k_i))
+    dT_dz_ki_den = sum([l.weights[k] * exp(l.α * z(fglrm, XY, k)) for k=1:size(fglrm.Z)[1]])
+    dT_dz_ki = dT_dz_ki_num / dT_dz_ki_den
+    magnitude_Ωₖ₍ᵢ₎ = size(fglrm.Z[k_i])[1]
+    dz_ki_dx_i = sum([grad(fglrm.losses[j], XY[i, yidxs[j]], fglrm.A[i, j]) * XY[i, yidxs[j]] for j in fglrm.observed_features[i]])
+    dT_dz_ki * dz_ki_dx_i / magnitude_Ωₖ₍ᵢ₎
+end
+
+function grad_y(l::WeightedLogSumExponentialLoss, fglrm::FairGLRM, XY, j)
+    gradient = 0.0
+    normalised_den = sum([l.weights[k] * exp(l.α * z(fglrm, XY, k)) for k=1:size(fglrm.Z)[1]])
+    loss = fglrm.losses[j]
+    yidx = get_yidxs(fglrm.losses)[j]
+    for k=1:size(fglrm.Z)[1]
+        dT_dz_k = l.weights[k] * exp(l.α * z(fglrm, XY, k)) / normalised_den
+        magnitude_Ωₖ = length(fglrm.Z[k])
+        dz_k_dy_j = sum([grad(loss, XY[i, yidx], fglrm.A[i, j]) * XY[i, yidx] for i in fglrm.Z[k]])
+        gradient += dT_dz_k * dz_k_dy_j / magnitude_Ωₖ
+    end
+    gradient
 end
