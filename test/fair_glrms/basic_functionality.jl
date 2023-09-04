@@ -1,4 +1,5 @@
 using LowRankModels, Random
+import LinearAlgebra: norm
 
 # Test basic functionality of fair_glrms.jl
 Random.seed!(1)
@@ -28,7 +29,7 @@ fglrm = FairGLRM(A,losses,rx,ry,k,protected_characteristic_idx,WeightedLogSumExp
                  scale=false, offset=false, X=randn(k,m), Y=randn(k,n));
 
 p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
-@time X,Y,ch = fit!(fglrm, params=p, verbose=false);
+@time X,Y,ch = fit!(fglrm, params=p, verbose=true);
 Ah = X'*Y;
 p.abs_tol > abs(norm(A-Ah)^2 - ch.objective[end])
 
@@ -46,8 +47,9 @@ function validate_folds(trf,tre,tsf,tse)
 	true
 end
 
-obs = LowRankModels.flatten_observations(glrm.observed_features)
-folds = LowRankModels.getfolds(obs, 5, size(glrm.A)..., do_check = false)
+obs = LowRankModels.flatten_observations(fglrm.observed_features)
+folds = LowRankModels.getfolds(obs, 5, size(fglrm.A)..., do_check = false)
 for i in 1:length(folds)
 	@assert validate_folds(folds[i]...)
 end
+print("Passed test_basic_functionality.jl!")
