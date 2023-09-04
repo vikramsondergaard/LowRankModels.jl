@@ -24,26 +24,14 @@ end
 
 function objective(fglrm::FairGLRM, X::Array{Float64,2}, Y::Array{Float64,2},
                    XY::Array{Float64,2};
-                   yidxs = get_yidxs(glrm.losses), # mapping from columns of A to columns of Y; by default, the identity
+                   yidxs = get_yidxs(fglrm.losses), # mapping from columns of A to columns of Y; by default, the identity
                    include_regularization=true)
-    m,n = size(glrm.A)
+    m,n = size(fglrm.A)
     @assert(size(XY)==(m,yidxs[end][end]))
-    @assert(size(Y)==(glrm.k,yidxs[end][end]))
-    @assert(size(X)==(glrm.k,m))
-    # Total loss
-    total_err = 0.0
-    # Groupwise losses
-    err = Dict{typeof(fglrm.protected_category), Float64}
-    for k in keys(fglrm.Z)
-        err[k] = 0.0
-        for j=1:n
-            for i in fglrm.Z[k]
-                err[k] += evaluate(fglrm.losses[j], XY[i, yidxs[j]], fglrm.A[i, j])
-            end
-        end
-    end
+    @assert(size(Y)==(fglrm.k,yidxs[end][end]))
+    @assert(size(X)==(fglrm.k,m))
     # Use the provided group functional to evaluate the total loss
-    total_err = evaluate(fglrm.group_functional, err)
+    total_err = evaluate(fglrm.group_functional, fglrm, XY)
     # add regularization penalty
     if include_regularization
         total_err += calc_penalty(fglrm,X,Y; yidxs = yidxs)
@@ -66,6 +54,20 @@ function row_objective(glrm::AbstractGLRM, i::Int, x::AbstractArray, Y::Array{Fl
     end
     return err
 end
+
+function row_objective(fglrm::FairGLRM, i::Int, x::AbstractArray, Y::Array{Float64,2} = glrm.Y;
+                       yidxs = get_yidxs(fglrm.losses), # mapping from columns of A to columns of Y; by default, the identity
+                       include_regularization=true)
+    XY = x'*Y
+    # Use the provided group functional to evaluate the total loss
+    err = evaluate(fglrm.group_functional, fglrm, XY, fglrm.A[i, :])
+    # add regularization penalty
+    if include_regularization
+        err += evaluate(fglrm.rx[i], x)
+    end
+    return err
+end
+
 function col_objective(glrm::AbstractGLRM, j::Int, y::AbstractArray, X::Array{Float64,2} = glrm.X;
                    include_regularization=true)
     m,n = size(glrm.A)
@@ -83,6 +85,7 @@ function col_objective(glrm::AbstractGLRM, j::Int, y::AbstractArray, X::Array{Fl
     end
     return err
 end
+
 # The user can also pass in X and Y and `objective` will compute XY for them
 function objective(glrm::GLRM, X::Array{Float64,2}, Y::Array{Float64,2};
                    sparse=false, include_regularization=true,
