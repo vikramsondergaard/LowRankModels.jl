@@ -33,12 +33,11 @@ end
 Computes zₖ as per the definition in "Towards Fair Unsupervised Learning".
 
 # Parameters
-- `fglrm::FairGLRM`: The Fair GLRM. This is needed to get information about the
-                     division of groups among the data, the observed features
-                     in the Fair GLRM, and the loss functions corresponding to
-                     each column of data.
-- `XY`:              The computed matrix product of X and Y.
-- `k`:               The given group for which zₖ will be computed.
+- `losses::Array{Loss, 1}`: The column-wise losses of the fair GLRM.
+- `XY`:                     The current best low-rank approximation of A.
+- `A`:                      The given data matrix.
+- `magnitude_Ωₖ::Float64`:  The number of entries belonging to group k of the
+                            protected characteristic.
 
 # Returns
 The value of zₖ.
@@ -60,19 +59,18 @@ function z(losses::Array{Loss, 1}, XY, A, magnitude_Ωₖ::Float64)
     z / magnitude_Ωₖ
 end
 
-z(loss, u, a, magnitude_Ωₖ) = evaluate(loss, u, a) / magnitude_Ωₖ
+z(loss::Loss, u::Real, a::Number, magnitude_Ωₖ::Float64) = evaluate(loss, u, a) / magnitude_Ωₖ
 
 """
-Computes the gradient of zₖ. This is useful for several gradients.
+Computes the gradient of zₖ. This is required for the gradients of several
+group functionals.
 
 # Parameters
-- `fglrm::FairGLRM`: The Fair GLRM. This is needed to get information about the
-                     division of groups among the data, the observed features
-                     in the Fair GLRM, and the loss functions corresponding to
-                     each column of data.
-- `XY`:              The computed matrix product of X and Y.
-- `k`:               The given group for which the gradient of zₖ will be 
-                     computed.
+- `losses::Array{Loss, 1}`: The column-wise losses of the fair GLRM.
+- `XY`:                     The current best low-rank approximation of A.
+- `A`:                      The given data matrix.
+- `magnitude_Ωₖ::Float64`:  The number of entries belonging to group k of the
+                            protected characteristic.
 
 # Returns
 The gradient of zₖ.
@@ -278,14 +276,55 @@ The standard group loss. This computes ∑ₖ wₖzₖ for k ∈ [1, K].
 #     gradient
 # end
 
+"""
+The weighted log-sum-exponential group loss. This computes
+log(∑ₖ wₖeᵅᶻ⁽ᵏ⁾) / α for k ∈ [1, K].
+
+# Parameters
+- `α::Float64`:              A coefficient which determines how much debiasing
+                             should be performed, at the expense of accuracy.
+                             Higher values of α correspond to prioritising
+                             fairness more over accuracy. In their experiments,
+                             Buet-Golfouse and Utyagulov use α ∈ [10⁻⁶, 10⁵].
+- `weights::Array{Float64}`: The weights with which to compute the weighted sum
+                             of each individual loss.
+"""
 mutable struct WeightedLogSumExponentialLoss<:WeightedGroupFunctional
     α::Float64
     weights::Array{Float64}
 end
 
-function evaluate(l::WeightedLogSumExponentialLoss, losses::Array{Loss, 1}, XY,
+"""
+Evaluates the total loss for given data. Note that this method is often adapted
+with smaller datasets: see the `row_objective()` and `col_objective()`
+functions for fair GLRMs in `evaluate_fit.jl` for an example of such use. Note
+that this function does not provide any help with targeting specific areas of
+the data. It is general enough that it can handle most data, if well-specified.
+
+# Parameters
+- `l::WeightedLogSumExponentialLoss`: The weighted log-sum-exponential group
+                                      loss instance whose weights and α value
+                                      are key to computing this loss.
+- `losses::Array{<:Loss, 1}`:         The column-wise losses of the fair GLRM.
+- `XY`:                               The current best low-rank approximation
+                                      of A.
+- `A`:                                The given data matrix.
+- `Z`:                                The partitioning of the data by protected
+                                      characteristic value.
+- `observed_features`:                The observed features for each row of the
+                                      data.
+- `yidxs`:                            The mapping of column indices from A to
+                                      XY. More often than not this will just be
+                                      the identity.
+
+# Returns
+The groupwise loss as per the definition of the weighted log-sum-exponential
+loss.
+"""
+function evaluate(l::WeightedLogSumExponentialLoss, losses::Array{<:Loss, 1}, XY,
                   A, Z, observed_features;
                   yidxs = get_yidxs(losses))
+    # TODO: comments!!
     @assert l.α > 0
     validate_weights(l)
     ∑ₖwₖeᵅᶻ = 0.0
@@ -294,10 +333,11 @@ function evaluate(l::WeightedLogSumExponentialLoss, losses::Array{Loss, 1}, XY,
         size_Ωₖ = length(group)
         for i in group
             for j in observed_features[i]
-                display(typeof(losses))
-                display(typeof(XY))
-                display(typeof(A))
-                z_k += z(losses[j], XY[i, yidxs[j]], A[i, j], size_Ωₖ)
+                lossj = losses[j]
+                yidx_j = yidxs[j]
+                XYij = XY[i, yidx_j]
+                Aij = A[i, j]
+                z_k += z(lossj, XYij, Aij, size_Ωₖ)
             end
         end
         eᵅᶻᵏ = exp(l.α * z_k)
@@ -306,15 +346,41 @@ function evaluate(l::WeightedLogSumExponentialLoss, losses::Array{Loss, 1}, XY,
     log(∑ₖwₖeᵅᶻ) / l.α
 end
 
-# function grad(l::WeightedLogSumExponentialLoss, losses::Array{Loss, 1}, XY, A, Z; yidxs = get_yidxs(losses))
-#     gradient = sum([l.weights[k] * grad_z(losses, XY, A, k) * exp(l.α * z(fglrm, XY, k)) for k=1:size(Z)[1]])
-#     denom = sum([l.weights[k] * exp(l.α * z(fglrm, XY, k)) for k=1:size(fglrm.Z)[1]])
-#     gradient / denom
-# end
+"""
+Evaluates the gradient of the data at a given point. Unlike `evaluate()`, this
+function is not over the whole data, rather it is over just one coordinate
+(i, j). This choice was made because the existing prox-grad method evaluated
+the gradient of each coordinate separately. Realising that this could also be
+done for the weighted log-sum-exponential group loss meant I coded it this way
+too.
 
+Note that, in theory, `evaluate()` can also be used point-wise: it just takes a
+lot more effort to set up the parameters the right way to do this.
+
+# Parameters
+- `l::WeightedLogSumExponentialLoss`: The weighted log-sum-exponential group
+                                      loss instance whose weights and α value
+                                      are key to computing this loss.
+- `i`:                                The row of the coordinate whose gradient
+                                      is being computed.
+- `j`:                                The column of the coordinate whose
+                                      gradient is being computed.
+- `losses::Array{Loss, 1}`:           The column-wise losses of the fair GLRM.
+- `XY`:                               The current best low-rank approximation
+                                      of A.
+- `A`:                                The given data matrix.
+- `Z`:                                The partitioning of the data by protected
+                                      characteristic value.
+- `observed_features`:                The observed features for each row of the
+                                      data.
+- `yidxs`:                            The mapping of column indices from A to
+                                      XY. More often than not this will just be
+                                      the identity.
+"""
 function grad(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
                 XY, A, Z, observed_features; 
                 yidxs = get_yidxs(losses))
+    # TODO: comments!!
     k_i = 0
     for (k, group) in enumerate(Z)
         if (i in group) k_i = k; break end
@@ -342,49 +408,3 @@ function grad(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
     end
     grad(losses[j], XY[i, yidxs[j]], A[i, j]) * wₖeᵅᶻ / (size_Ωₖ₍ᵢ₎ * ∑ₖwₖeᵅᶻ)
 end
-
-# function grad_x(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
-#                 XY, A, Z, observed_features; 
-#                 yidxs = get_yidxs(losses))
-#     m,n = size(A)
-#     k_i = 0
-#     for (k, group) in enumerate(Z)
-#         if i in group
-#             k_i = k
-#             break
-#         end
-#     end
-#     size_Ωₖ₍ᵢ₎ = length(Z[k_i])
-#     exp_ki = exp(l.α * z(losses, XY[i, yidxs], A[i, yidxs], size_Ωₖ₍ᵢ₎))
-#     dT_dz_ki_n = l.weights[k_i] * exp_ki
-#     dT_dz_ki_d = 0.0
-#     for (k, group) in enumerate(Z)
-#         size_Ωₖ = length(group)
-#         exp_k = exp(l.α * z(losses, XY[group, yidxs], A[group, yidxs], size_Ωₖ))
-#         dT_dz_ki_d += l.weights[k] * exp_k
-#     end
-#     dT_dz_ki = dT_dz_ki_n / dT_dz_ki_d
-#     dz_ki_dx_i = sum([grad(losses[j], XY[i, yidxs[j]], A[i, j]) * XY[i, yidxs[j]] for j=1:n])
-#     dT_dz_ki * dz_ki_dx_i / size_Ωₖ₍ᵢ₎
-# end
-
-# function grad_x(l::WeightedLogSumExponentialLoss, loss::Loss, u::Real, a::Number, k::Int64, size_Ωₖ::Int64, XY, A, Z)
-#     w_k = l.weights[k]
-#     e = exp(l.α * z(losses, )))
-#     denom = sum([l.weights[k] * exp(l.α * )])
-#     return grad(loss, u, a) * w_k * e / (l.denom * size_Ωₖ)
-# end
-
-# function grad_y(l::WeightedLogSumExponentialLoss, fglrm::FairGLRM, XY, j)
-#     gradient = 0.0
-#     normalised_den = sum([l.weights[k] * exp(l.α * z(fglrm, XY, k)) for k=1:size(fglrm.Z)[1]])
-#     loss = fglrm.losses[j]
-#     yidx = get_yidxs(fglrm.losses)[j]
-#     for k=1:size(fglrm.Z)[1]
-#         dT_dz_k = l.weights[k] * exp(l.α * z(fglrm, XY, k)) / normalised_den
-#         magnitude_Ωₖ = length(fglrm.Z[k])
-#         dz_k_dy_j = sum([grad(loss, XY[i, yidx], fglrm.A[i, j]) * XY[i, yidx] for i in fglrm.Z[k]])
-#         gradient += dT_dz_k * dz_k_dy_j / magnitude_Ωₖ
-#     end
-#     gradient
-# end
