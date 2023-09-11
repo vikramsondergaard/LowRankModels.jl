@@ -24,9 +24,7 @@ function validate_weights(l::WeightedGroupFunctional)
     # Check criterion 2
     @assert isapprox(sum(l.weights), 1.0, atol=0.01)
     # Check criterion 1
-    for w in l.weights
-        @assert w >= 0
-    end
+    for w in l.weights @assert w >= 0 end
 end
 
 """
@@ -59,16 +57,52 @@ function z(losses::Array{<:Loss, 1}, XY, A, magnitude_Ωₖ::Int64)
     z / magnitude_Ωₖ
 end
 
+"""
+Computes zₖ as per the definition in "Towards Fair Unsupervised Learning".
+
+# Parameters
+- `loss::L where L<:Loss`: The given loss with which to compute zₖ.
+- `u::Real`:               The current best low-rank approximation of A_{ij}.
+- `a::Number`:             The actual value of Aᵢⱼ.
+- `magnitude_Ωₖ::Int64`:   The number of entries belonging to group k of the
+                           protected characteristic.
+
+# Returns
+The value of zₖ.
+"""
 function z(loss::L where L<:Loss, u::Real, a::Number, magnitude_Ωₖ::Int64)
+    # This is the case where the loss function is multi-dimensional. Need to
+    # convert `u` to a singleton list.
     if !isa(loss, SingleDimLoss) && !isa(loss, OrdinalHingeLoss)
         eval = evaluate(loss, [u], a) / magnitude_Ωₖ
+    # This is the case for the single-dimension loss functions.
     else
         eval = evaluate(loss, u, a) / magnitude_Ωₖ
     end
     eval
 end
 
-z(loss::L where L<:Loss, u::Vector{Float64}, a::Number, magnitude_Ωₖ::Int64) = evaluate(loss, u, a) / magnitude_Ωₖ
+"""
+Computes zₖ as per the definition in "Towards Fair Unsupervised Learning".
+
+# Parameters
+- `loss::L where L<:Loss`: The given loss with which to compute zₖ.
+- `u::Vector{Real}`:       The current best low-rank approximation of A_{ij}.
+- `a::Number`:             The actual value of Aᵢⱼ.
+- `magnitude_Ωₖ::Int64`:   The number of entries belonging to group k of the
+                           protected characteristic.
+
+# Returns
+The value of zₖ.
+"""
+function z(loss::L where L<:Loss, u::Vector{Float64}, a::Number, magnitude_Ωₖ::Int64)
+    if !isa(loss, SingleDimLoss) && !isa(loss, OrdinalHingeLoss)
+        eval = evaluate(loss, u, a) / magnitude_Ωₖ
+    # This is the case for the single-dimension loss functions.
+    else
+        eval = sum(evaluate(loss, e, a) for e in u) / magnitude_Ωₖ
+    end
+end
 
 """
 Computes the gradient of zₖ. This is required for the gradients of several
@@ -333,25 +367,39 @@ loss.
 function evaluate(l::WeightedLogSumExponentialLoss, losses::Array{<:Loss, 1}, XY,
                   A, Z, observed_features;
                   yidxs = get_yidxs(losses))
-    # TODO: comments!!
+    print("yidxs: "); display(yidxs)
+    print("XY: ");    display(XY)
+    # α needs to be greater than 0 because it is the denominator of our end
+    # result
     @assert l.α > 0
+    # Need to validate the weights are non-negative and normalised
     validate_weights(l)
+    # This is the weighted exponential part of the output
     ∑ₖwₖeᵅᶻ = 0.0
+    one_dim_XY = length(size(XY)) == 1
+    one_dim_A = length(size(A)) == 1
     for (k, group) in enumerate(Z)
         z_k = 0.0
+        # Get the magnitude of Ωₖ for calculating zₖ
         size_Ωₖ = length(group)
         for i in group
             for j in observed_features[i]
+                # Calculate zₖ per row in Ωₖ
                 lossj = losses[j]
-                yidx_j = yidxs[j]
-                XYij = XY[i, yidx_j]
-                Aij = A[i, j]
+                yidxsj = yidxs[j]
+                if one_dim_XY XYij = XY[yidxsj] else XYij = XY[i, yidxsj] end
+                if one_dim_A  Aij  = A[j]       else Aij  = A[i, j]       end
                 z_k += z(lossj, XYij, Aij, size_Ωₖ)
             end
         end
+        # Now that we have zₖ, calculate the exponential part of the weighted
+        # log-sum exponential
         eᵅᶻᵏ = exp(l.α * z_k)
+        # Multiply by the corresponding weight to get the weighted part of the
+        # weighted log-sum exponential
         ∑ₖwₖeᵅᶻ += l.weights[k] * eᵅᶻᵏ
     end
+    # Divide by α as per the specification
     log(∑ₖwₖeᵅᶻ) / l.α
 end
 
