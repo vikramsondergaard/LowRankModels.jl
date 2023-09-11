@@ -63,7 +63,7 @@ println("successfully fit matrix with some entries unobserved")
 # # explicitly encoding missing
 # obs = observations(df)
 # fglrm = FairGLRM(df, QuadLoss(), QuadReg(), QuadReg(), 2, protected_char,
-# WeightedLogSumExponentialLoss(1, [length(groups[i]) / m for i=1:num_protected_categories]), obs=obs)
+#     WeightedLogSumExponentialLoss(1, [length(groups[i]) / m for i=1:num_protected_categories]), obs=obs)
 # fit!(fglrm, verbose=true)
 
 # # implicitly encoding missings from dataframe - this functionality has not been implemented for dataframes
