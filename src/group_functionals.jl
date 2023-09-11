@@ -367,8 +367,6 @@ loss.
 function evaluate(l::WeightedLogSumExponentialLoss, losses::Array{<:Loss, 1}, XY,
                   A, Z, observed_features;
                   yidxs = get_yidxs(losses))
-    print("yidxs: "); display(yidxs)
-    print("XY: ");    display(XY)
     # α needs to be greater than 0 because it is the denominator of our end
     # result
     @assert l.α > 0
