@@ -101,13 +101,8 @@ function col_objective(fglrm::FairGLRM, j::Int, y::AbstractArray, X::Array{Float
     end
     @inbounds XYj = XY[obsex,colind]
     @inbounds Aj = convert(Array, fglrm.A[obsex,j])
-    if length(sz) == 1
-        display([colind])
-        err = evaluate(fglrm.group_functional, [fglrm.losses[j]], XYj, Aj, groups, ones(Int64, 1, length(obsex)), yidxs=[colind])
-    else
-        display(colind)
-        err = evaluate(fglrm.group_functional, [fglrm.losses[j]], XYj, Aj, groups, ones(Int64, length(colind), length(obsex)), yidxs=[colind])
-    end
+    if length(sz) == 1 feature_dims = 1 else feature_dims = length(colind) end
+    err = evaluate(fglrm.group_functional, [fglrm.losses[j]], XYj, Aj, groups, ones(Int64, feature_dims, length(obsex)), yidxs=[colind])
     # add regularization penalty
     if include_regularization
         err += evaluate(fglrm.ry[j], y)
