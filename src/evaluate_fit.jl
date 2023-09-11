@@ -92,12 +92,17 @@ function col_objective(fglrm::FairGLRM, j::Int, y::AbstractArray, X::Array{Float
     if length(sz) == 1 colind = 1 else colind = 1:sz[2] end
     XY = X'*y
     obsex = fglrm.observed_examples[j]
+    obsset = convert(obsex, Set{eltype(obsex)})
+    groups = fill(Set(), length(fglrm.Z))
+    for (i, group) in enumerate(fglrm.Z)
+        groups[i] = intersect(convert(group, Set{eltype(group)}), obsset)
+    end
     @inbounds XYj = XY[obsex,colind]
     @inbounds Aj = convert(Array, fglrm.A[obsex,j])
     if length(sz) == 1
-        err = evaluate(fglrm.group_functional, [fglrm.losses[j]], XYj, Aj, fglrm.Z, ones(Int64, 1, length(obsex)), yidxs=[colind])
+        err = evaluate(fglrm.group_functional, [fglrm.losses[j]], XYj, Aj, groups, ones(Int64, 1, length(obsex)), yidxs=[colind])
     else
-        err = evaluate(fglrm.group_functional, [fglrm.losses[j]], XYj, Aj, fglrm.Z, ones(Int64, length(colind), length(obsex)), yidxs=colind)
+        err = evaluate(fglrm.group_functional, [fglrm.losses[j]], XYj, Aj, groups, ones(Int64, length(colind), length(obsex)), yidxs=colind)
     end
     # add regularization penalty
     if include_regularization
