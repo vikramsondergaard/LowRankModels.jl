@@ -42,7 +42,7 @@ Computes zₖ as per the definition in "Towards Fair Unsupervised Learning".
 # Returns
 The value of zₖ.
 """
-function z(losses::Array{Loss, 1}, XY, A, magnitude_Ωₖ::Float64)
+function z(losses::Array{<:Loss, 1}, XY, A, magnitude_Ωₖ::Int64)
     m,n = size(A)
     # Get the y indices corresponding to each loss function
     yidxs = get_yidxs(losses)
@@ -59,7 +59,16 @@ function z(losses::Array{Loss, 1}, XY, A, magnitude_Ωₖ::Float64)
     z / magnitude_Ωₖ
 end
 
-z(loss::Loss, u::Real, a::Number, magnitude_Ωₖ::Float64) = evaluate(loss, u, a) / magnitude_Ωₖ
+function z(loss::L where L<:Loss, u::Real, a::Number, magnitude_Ωₖ::Int64)
+    if !isa(loss, SingleDimLoss) && !isa(loss, OrdinalHingeLoss)
+        eval = evaluate(loss, [u], a) / magnitude_Ωₖ
+    else
+        eval = evaluate(loss, u, a) / magnitude_Ωₖ
+    end
+    eval
+end
+
+z(loss::L where L<:Loss, u::Vector{Float64}, a::Number, magnitude_Ωₖ::Int64) = evaluate(loss, u, a) / magnitude_Ωₖ
 
 """
 Computes the gradient of zₖ. This is required for the gradients of several
