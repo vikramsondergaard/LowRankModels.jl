@@ -13,6 +13,9 @@ A = convert(Matrix, adult_csv)
 index_of_gender = 3
 n_genders = 2 # (from the data - gender is not actually a binary!)
 
+# Columns of dataset
+# age - hours-worked - gender - income - workclass - relationship - race - education-num
+
 real_losses = [HuberLoss(), HuberLoss()]
 
 bool_losses = [HingeLoss(), HingeLoss()]
