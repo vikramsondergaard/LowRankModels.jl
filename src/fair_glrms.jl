@@ -2,7 +2,7 @@
 # Buet-Golfouse and Utyagulov. It extends GLRMs towards notions of fairness
 # using group functionals in place of the loss function in a GLRM.
 
-export FairGLRM, find_group, partition_groups
+export FairGLRM, partition_groups
 
 ### FAIR GLRM TYPE
 mutable struct FairGLRM<:AbstractGLRM
@@ -45,32 +45,29 @@ The output is a dictionary, where each unique value `k` in the `s`-th column is
 a key in the dictionary, and the corresponding value is a matrix whose rows are
 all the rows in `A` whose value in the `s`-th column is `k`.
 """
-function partition_groups(A, s::Int)
+function partition_groups(A, s::Int, n_groups::Int)
     # Define the groups. The element type for all keys and values is the
     # element type of `A`.
-    groups = Dict{eltype(A[:, s]), Set{Int64}}()
-    num_rows = size(A)[1]
-    for r in 1:num_rows
+    groups = []
+    for n=1:n_groups push!(groups, Set()) end
+    num_rows = size(A, 1)
+    for r=1:num_rows
         row = A[r, :]
         # Get the unique value `k` (see the docstring for more detail)
-        k = row[s]
-        # The dictionary doesn't yet have this key - add it to the dictionary
-        if !haskey(groups, k)
-            groups[k] = Set(r)
-        # The dictionary already has this key - push this row to the existing
-        # vector
-        else
-            push!(groups[k], r)
+        if n_groups < 3
+            k = row[s] + 1
+        else 
+            k = row[s]
         end
+        # The dictionary doesn't yet have this key - add it to the dictionary
+        push!(groups[k], r)
     end
-    group_vals = []
-    for k in keys(groups) push!(group_vals, groups[k]) end
-    group_vals
+    groups
 end
 
 function FairGLRM(A, losses::Array, rx::Array, ry::Array, k::Int, s::Int, group_functional::GroupFunctional;
                   X = randn(k,size(A,1)), Y = randn(k,embedding_dim(losses)),
-                  Z = partition_groups(A, s),
+                  Z = partition_groups(A, s, length(group_functional.weights)),
                   obs = nothing,                                    # [(i₁,j₁), (i₂,j₂), ... (iₒ,jₒ)]
                   observed_features = fill(1:size(A,2), size(A,1)), # [1:n, 1:n, ... 1:n] m times
                   observed_examples = fill(1:size(A,1), size(A,2)), # [1:m, 1:m, ... 1:m] n times
@@ -119,10 +116,4 @@ function FairGLRM(A, losses::Array, rx::Array, ry::Array, k::Int, s::Int, group_
         add_offset!(glrm)
     end
     return glrm
-end
-
-function find_group(fglrm::FairGLRM, i::Int64)
-    for k=1:size(fglrm.Z)[1]
-        if i in fglrm.Z[k] return k end
-    end
 end
