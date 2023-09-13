@@ -335,7 +335,11 @@ log(∑ₖ wₖeᵅᶻ⁽ᵏ⁾) / α for k ∈ [1, K].
 mutable struct WeightedLogSumExponentialLoss<:WeightedGroupFunctional
     α::Float64
     weights::Array{Float64}
+    Z::Array{Float64}
 end
+
+WeightedLogSumExponentialLoss(α::Float64, weights::Array{Float64}) =
+    WeightedLogSumExponentialLoss(α, weights, zeros(Float64, length(weights)))
 
 """
 Evaluates the total loss for given data. Note that this method is often adapted
@@ -434,32 +438,27 @@ lot more effort to set up the parameters the right way to do this.
 """
 function grad(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
                 XY, A, Z, observed_features; 
-                yidxs = get_yidxs(losses))
+                yidxs = get_yidxs(losses), refresh = (i * j == 1))
     # TODO: comments!!
+    if refresh
+        for (k, group) in enumerate(Z)
+            z_k = 0.0
+            size_Ωₖ = length(group)
+            for i in group
+                for j in observed_features[i]
+                    z_k += z(losses[j], XY[i, yidxs[j]], A[i, j], size_Ωₖ)
+                end
+            end
+            eᵅᶻᵏ = exp(l.α * z_k)
+            l.Z[k] = eᵅᶻᵏ
+        end
+    end
     k_i = 0
     for (k, group) in enumerate(Z)
         if (i in group) k_i = k; break end
     end
     size_Ωₖ₍ᵢ₎ = length(Z[k_i])
-    z_ki = 0.0
-    for i in Z[k_i]
-        for j in observed_features[i]
-            z_ki += z(losses[j], XY[i, yidxs[j]], A[i, j], size_Ωₖ₍ᵢ₎)
-        end
-    end
-    eᵅᶻ = exp(l.α * z_ki)
-    wₖeᵅᶻ = l.weights[k_i] * eᵅᶻ
-    ∑ₖwₖeᵅᶻ = 0.0
-    for (k, group) in enumerate(Z)
-        z_k = 0.0
-        size_Ωₖ = length(group)
-        for i in group
-            for j in observed_features[i]
-                z_k += z(losses[j], XY[i, yidxs[j]], A[i, j], size_Ωₖ)
-            end
-        end
-        eᵅᶻᵏ = exp(l.α * z_k)
-        ∑ₖwₖeᵅᶻ += l.weights[k] * eᵅᶻᵏ
-    end
-    grad(losses[j], XY[i, yidxs[j]], A[i, j]) * wₖeᵅᶻ / (size_Ωₖ₍ᵢ₎ * ∑ₖwₖeᵅᶻ)
+    wₖ₍ᵢ₎eᵅᶻ = l.weights[k_i] * l.Z[k_i]
+    ∑ₖwₖeᵅᶻ = sum(l.weights .* l.Z)
+    grad(losses[j], XY[i, yidxs[j]], A[i, j]) * wₖ₍ᵢ₎eᵅᶻ / (size_Ωₖ₍ᵢ₎ * ∑ₖwₖeᵅᶻ)
 end
