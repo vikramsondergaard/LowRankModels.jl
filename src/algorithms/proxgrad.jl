@@ -306,18 +306,16 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
         end
 
         for inneri=1:params.inner_iter_X
+            refresh = true
             for e=1:m # for every example x_e == ve[e]
-                group = 0
-                for (inner_inner_i, inner_group) in enumerate(Z)
-                    if e in inner_group group = inner_inner_i end
-                end
                 fill!(g, 0.) # reset gradient to 0
                 # compute gradient of L with respect to Xᵢ as follows:
                 # ∇{Xᵢ}L = Σⱼ dLⱼ(XᵢYⱼ)/dXᵢ
                 for f in glrm.observed_features[e]
                     # but we have no function dLⱼ/dXᵢ, only dLⱼ/d(XᵢYⱼ) aka dLⱼ/du
                     # by chain rule, the result is: Σⱼ (dLⱼ(XᵢYⱼ)/du * Yⱼ), where dLⱼ/du is our grad() function
-                    curgrad = grad(group_func, e, f, losses, XY, A, Z, glrm.observed_features)
+                    curgrad = grad(group_func, e, f, losses, XY, A, Z, glrm.observed_features, refresh=refresh)
+                    refresh = false
                     if isa(curgrad, Number)
                         axpy!(curgrad, vf[f], g)
                     else
@@ -353,6 +351,7 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
         end # inner iteration
         # STEP 2: Y update
         for inneri=1:params.inner_iter_Y
+            refresh = true
             fill!(G, 0.)
             for f=1:n
                 # compute gradient of L with respect to Yⱼ as follows:
@@ -360,7 +359,8 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
                 for e in glrm.observed_examples[f]
                     # but we have no function dLⱼ/dYⱼ, only dLⱼ/d(XᵢYⱼ) aka dLⱼ/du
                     # by chain rule, the result is: Σⱼ dLⱼ(XᵢYⱼ)/du * Xᵢ, where dLⱼ/du is our grad() function
-                    curgrad = grad(group_func, e, f, losses, XY, A, Z, glrm.observed_features)
+                    curgrad = grad(group_func, e, f, losses, XY, A, Z, glrm.observed_features, refresh=refresh)
+                    refresh = false
                     if isa(curgrad, Number)
                         axpy!(curgrad, ve[e], gf[f])
                     else
@@ -406,8 +406,9 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
         if i>10 && (obj_decrease < scaled_abs_tol || obj_decrease/obj < params.rel_tol)
             break
         end
-        if verbose && i%10==0
+        if verbose
             println("Iteration $i: objective value = $(ch.objective[end])")
+            println("Time passed: $t seconds")
         end
     end
 
