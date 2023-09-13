@@ -92,13 +92,9 @@ function col_objective(fglrm::FairGLRM, j::Int, y::AbstractArray, X::Array{Float
     if length(sz) == 1 colind = 1 else colind = 1:sz[2] end
     XY = X'*y
     obsex = fglrm.observed_examples[j]
+    obsset = Set(obsex)
     # Want to use a subset of Z, including only the elements that are observed
-    groups = fill(Set(), length(fglrm.Z))
-    for i=1:length(obsex)
-        for (j, group) in enumerate(fglrm.Z)
-            if obsex[i] in group push!(groups[j], i) end
-        end
-    end
+    groups = [intersect(g, obsset) for g in fglrm.Z]
     @inbounds XYj = XY[obsex,colind]
     @inbounds Aj = convert(Array, fglrm.A[obsex,j])
     if length(sz) == 1 feature_dims = 1 else feature_dims = length(colind) end
