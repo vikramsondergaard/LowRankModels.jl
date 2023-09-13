@@ -439,25 +439,32 @@ lot more effort to set up the parameters the right way to do this.
 function grad(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
                 XY, A, Z, observed_features; 
                 yidxs = get_yidxs(losses), refresh = (i * j == 1))
-    # TODO: comments!!
+    # Because the group-wise losses only update once per gradient step,
+    # it makes sense to cache these and refresh only when needed
     if refresh
         for (k, group) in enumerate(Z)
-            z_k = 0.0
+            z_k = 0.0 # The loss for group k ∈ [1, K]
             size_Ωₖ = length(group)
             for i in group
                 for j in observed_features[i]
+                    # Add the loss for each row in the k-th group
                     z_k += z(losses[j], XY[i, yidxs[j]], A[i, j], size_Ωₖ)
                 end
             end
+            # Compute the exponential as defined by Buet-Golfouse and Utyagulov
             eᵅᶻᵏ = exp(l.α * z_k)
+            # Cache this in the WSE loss instance so we don't have to compute
+            # it again later
             l.Z[k] = eᵅᶻᵏ
         end
     end
+    # This is the group that row i belongs in
     k_i = 0
     for (k, group) in enumerate(Z)
         if (i in group) k_i = k; break end
     end
     size_Ωₖ₍ᵢ₎ = length(Z[k_i])
+    # Get the product of the k-th weight and the k-th exponential
     wₖ₍ᵢ₎eᵅᶻ = l.weights[k_i] * l.Z[k_i]
     ∑ₖwₖeᵅᶻ = sum(l.weights .* l.Z)
     grad(losses[j], XY[i, yidxs[j]], A[i, j]) * wₖ₍ᵢ₎eᵅᶻ / (size_Ωₖ₍ᵢ₎ * ∑ₖwₖeᵅᶻ)
