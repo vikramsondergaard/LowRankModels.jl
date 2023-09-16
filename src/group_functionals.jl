@@ -94,7 +94,7 @@ Computes zₖ as per the definition in "Towards Fair Unsupervised Learning".
 The value of zₖ.
 """
 function z(loss::L where L<:Loss, u::Vector{Float64}, a::Number, magnitude_Ωₖ::Int64)
-    if !isa(loss, SingleDimLoss) && !isa(loss, OrdinalHingeLoss)
+    if isa(loss, MultinomialLoss) || isa(loss, OvALoss)
         eval = evaluate(loss, u, a) / magnitude_Ωₖ
     # This is the case for the single-dimension loss functions.
     else
