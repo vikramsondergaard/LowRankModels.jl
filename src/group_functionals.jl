@@ -3,7 +3,7 @@ import Optim: optimize, LBFGS
 
 export GroupFunctional, WeightedGroupFunctional, UnweightedGroupFunctional,
        StandardGroupLoss, MinMaxLoss, WeightedLPNormLoss, PenalisedLearningLoss,
-       WeightedLogSumExponentialLoss, evaluate, grad, grad_x, grad_y
+       WeightedLogSumExponentialLoss, evaluate, grad, grad_x, grad_y, z
 
 abstract type GroupFunctional end                               # The GroupFunctional type
 abstract type WeightedGroupFunctional<:GroupFunctional end      # GroupFunctional instances including weight vectors
@@ -71,11 +71,9 @@ Computes zₖ as per the definition in "Towards Fair Unsupervised Learning".
 The value of zₖ.
 """
 function z(loss::L where L<:Loss, u::Real, a::Number, magnitude_Ωₖ::Int64)
-    # This is the case where the loss function is multi-dimensional. Need to
-    # convert `u` to a singleton list.
-    if !isa(loss, SingleDimLoss) && !isa(loss, OrdinalHingeLoss)
-        eval = evaluate(loss, [u], a) / magnitude_Ωₖ
-    # This is the case for the single-dimension loss functions.
+    if isa(loss, MultinomialLoss) || isa(loss, OvALoss)
+        u = Int(u)
+        eval = evaluate(loss, [u == i for i=1:embedding_dim(loss)], a) / magnitude_Ωₖ
     else
         eval = evaluate(loss, u, a) / magnitude_Ωₖ
     end
