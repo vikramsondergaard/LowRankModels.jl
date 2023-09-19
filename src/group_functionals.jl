@@ -73,7 +73,9 @@ The value of zₖ.
 function z(loss::L where L<:Loss, u::Real, a::Number, magnitude_Ωₖ::Int64)
     if isa(loss, MultinomialLoss) || isa(loss, OvALoss)
         u = Int(u)
-        eval = evaluate(loss, [u == i for i=1:embedding_dim(loss)], a) / magnitude_Ωₖ
+        eval = evaluate(loss, [u == i for i=1:embedding_dim(loss)], Int(a)) / magnitude_Ωₖ
+    elseif isa(loss, WeightedHingeLoss)
+        eval = evaluate(loss, u, Bool(a)) / magnitude_Ωₖ
     else
         eval = evaluate(loss, u, a) / magnitude_Ωₖ
     end
@@ -443,10 +445,10 @@ function grad(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
         for (k, group) in enumerate(Z)
             z_k = 0.0 # The loss for group k ∈ [1, K]
             size_Ωₖ = length(group)
-            for i in group
-                for j in observed_features[i]
+            for g in group
+                for f in observed_features[g]
                     # Add the loss for each row in the k-th group
-                    z_k += z(losses[j], XY[i, yidxs[j]], A[i, j], size_Ωₖ)
+                    z_k += z(losses[f], XY[i, yidxs[f]], A[g, f], size_Ωₖ)
                 end
             end
             # Compute the exponential as defined by Buet-Golfouse and Utyagulov
