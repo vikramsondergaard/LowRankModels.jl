@@ -40,6 +40,7 @@ else
 end
 include("algorithms/sparse_proxgrad.jl")
 include("algorithms/quad_streaming.jl")
+include("algorithms/grad_descent.jl")
 
 # initialization methods
 include("rsvd.jl")

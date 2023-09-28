@@ -22,7 +22,11 @@ satisfies the following requirements:
 """
 function validate_weights(l::WeightedGroupFunctional)
     # Check criterion 2
-    @assert isapprox(sum(l.weights), 1.0, atol=0.01)
+    c = isapprox(sum(l.weights), 1.0, atol=0.01)
+    if !c
+        println("Expected weights to sum to 1.0, but they instead summed to $(sum(l.weights))")
+        @assert c
+    end
     # Check criterion 1
     for w in l.weights @assert w >= 0 end
 end
@@ -102,6 +106,7 @@ function z(loss::L where L<:Loss, u::Vector{Float64}, a::Number, magnitude_Ωₖ
     else
         eval = sum(evaluate(loss, e, a) for e in u) / magnitude_Ωₖ
     end
+    eval
 end
 
 """
@@ -383,7 +388,7 @@ function evaluate(l::WeightedLogSumExponentialLoss, losses::Array{<:Loss, 1}, XY
     for (k, group) in enumerate(Z)
         z_k = 0.0
         # Get the magnitude of Ωₖ for calculating zₖ
-        size_Ωₖ = length(group)
+        size_Ωₖ = sum(length(observed_features[i]) for i in group)
         for i in group
             for j in observed_features[i]
                 # Calculate zₖ per row in Ωₖ
@@ -397,6 +402,7 @@ function evaluate(l::WeightedLogSumExponentialLoss, losses::Array{<:Loss, 1}, XY
         # Now that we have zₖ, calculate the exponential part of the weighted
         # log-sum exponential
         eᵅᶻᵏ = exp(l.α * z_k)
+        # println("eᵅᶻᵏ is: $eᵅᶻᵏ for group $k")
         # Multiply by the corresponding weight to get the weighted part of the
         # weighted log-sum exponential
         ∑ₖwₖeᵅᶻ += l.weights[k] * eᵅᶻᵏ
@@ -444,11 +450,11 @@ function grad(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
     if refresh
         for (k, group) in enumerate(Z)
             z_k = 0.0 # The loss for group k ∈ [1, K]
-            size_Ωₖ = length(group)
+            size_Ωₖ = sum(length(observed_features[g]) for g in group)
             for g in group
                 for f in observed_features[g]
                     # Add the loss for each row in the k-th group
-                    z_k += z(losses[f], XY[i, yidxs[f]], A[g, f], size_Ωₖ)
+                    z_k += z(losses[f], XY[g, yidxs[f]], A[g, f], size_Ωₖ)
                 end
             end
             # Compute the exponential as defined by Buet-Golfouse and Utyagulov
@@ -463,9 +469,49 @@ function grad(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
     for (k, group) in enumerate(Z)
         if (i in group) k_i = k; break end
     end
-    size_Ωₖ₍ᵢ₎ = length(Z[k_i])
+    size_Ωₖ₍ᵢ₎ = sum(length(observed_features[f]) for f in Z[k_i])
     # Get the product of the k-th weight and the k-th exponential
     wₖ₍ᵢ₎eᵅᶻ = l.weights[k_i] * l.Z[k_i]
     ∑ₖwₖeᵅᶻ = sum(l.weights .* l.Z)
-    grad(losses[j], XY[i, yidxs[j]], A[i, j]) * wₖ₍ᵢ₎eᵅᶻ / (size_Ωₖ₍ᵢ₎ * ∑ₖwₖeᵅᶻ)
+    loss = losses[j]
+    # grad(losses[j], XY[i, yidxs[j]], A[i, j]) * wₖ₍ᵢ₎eᵅᶻ / (size_Ωₖ₍ᵢ₎ * ∑ₖwₖeᵅᶻ)
+    u = XY[i, yidxs[j]]
+    a = A[i, j]
+    if isa(loss, MultinomialLoss) || isa(loss, OvALoss)
+        u = Int(u)
+        g = grad(loss, [u == i for i=1:embedding_dim(loss)], Int(a))
+    elseif isa(loss, WeightedHingeLoss)
+        g = grad(loss, u, Bool(a))
+    else
+        g = grad(loss, u, a)
+    end
+    g * wₖ₍ᵢ₎eᵅᶻ / (size_Ωₖ₍ᵢ₎ * ∑ₖwₖeᵅᶻ)
 end
+
+# function grad_y(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
+#                 XY, A, Z, observed_features; 
+#                 yidxs = get_yidxs(losses), refresh = (i * j == 1))
+#     # Because the group-wise losses only update once per gradient step,
+#     # it makes sense to cache these and refresh only when needed
+#     if refresh
+#         for (k, group) in enumerate(Z)
+#             z_k = 0.0 # The loss for group k ∈ [1, K]
+#             size_Ωₖ = sum(length(observed_features[i]) for i in group)
+#             for g in group
+#                 for f in observed_features[g]
+#                     # Add the loss for each row in the k-th group
+#                     z_k += z(losses[f], XY[i, yidxs[f]], A[g, f], size_Ωₖ)
+#                 end
+#             end
+#             # Compute the exponential as defined by Buet-Golfouse and Utyagulov
+#             eᵅᶻᵏ = exp(l.α * z_k)
+#             # Cache this in the WSE loss instance so we don't have to compute
+#             # it again later
+#             l.Z[k] = eᵅᶻᵏ
+#         end
+#     end
+#     total_grad = 0.0
+#     for (k, group) in enumerate(Z)
+
+#     end
+# end

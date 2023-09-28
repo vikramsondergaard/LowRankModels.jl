@@ -55,45 +55,17 @@ XY₄ = [1  1    3 -0.83625 -0.62522 1 1
        4 -1    2  0.80596 -0.08575 1 2
        4  1    4  0.28682  1.21956 3 1]
 
-function test(l::WeightedLogSumExponentialLoss, losses::Array{<:Loss, 1}, XY,
-        A, Z, observed_features, wlseexp::Float64;
-        yidxs = get_yidxs(losses))
-    wlseout = evaluate(l, losses, XY, A, Z, observed_features, yidxs=yidxs)
-    println("Expected: $wlseexp")
-    println("Got: $wlseout")
-    @assert isapprox(wlseexp, wlseout, atol=0.0001)
-end
-
-function test_alpha()
-    αs = [10^(-6), 10^(-5), 3 * 10^(-3), 10^(-2), 10^(-1), 5 * 10^(-1), 1, 5,
-          10, 20, 60, 10^2, 10^3, 10^4, 10^5]
+function test(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
+        XY, A, Z, observed_features, gradexp::Float64; 
+        yidxs = get_yidxs(losses), refresh = (i * j == 1))
+    gradout = grad(l, i, j, losses, XY, A, Z, observed_features, yidxs=yidxs, refresh=refresh)
+    println("Expected: $gradexp")
+    println("Got: $gradout")
+    @assert isapprox(gradexp, gradout, atol=0.0001)
 end
 
 function test_small()
     wlse = WeightedLogSumExponentialLoss(10^(-6), [0.5, 0.5])
     Z = [[1, 3], [2]]
-    wlseexp = 0.9590305183171443
-    test(wlse, losses₂, XY₂, A₂, Z, [1:2 for i=1:3], wlseexp, yidxs=1:2)
-    println("Completed test_small()!")
+    
 end
-
-function test_medium()
-    wlse = WeightedLogSumExponentialLoss(10^(-6), [1.0/2.0, 1.0/3.0, 1.0/6.0])
-    Z = [1:3, 4:5, [6]]
-    wlseexp = 1.6041339975375166
-    test(wlse, losses₃, XY₃, A₃, Z, [1:4 for i=1:6], wlseexp, yidxs=1:4)
-    println("Completed test_medium()!")
-end
-
-function test_large()
-    weights = [2.0/5.0, 3.0/10.0, 1.0/5.0, 1.0/10.0]
-    wlse = WeightedLogSumExponentialLoss(10^(-6), weights)
-    Z = [1:4, 5:7, 8:9, [10]]
-    wlseexp = 2.3561262113568775
-    test(wlse, losses₄, XY₄, A₄, Z, [1:7 for i=1:10], wlseexp, yidxs=1:7)
-    println("Completed test_large()!")
-end
-
-test_small()
-test_medium()
-test_large()

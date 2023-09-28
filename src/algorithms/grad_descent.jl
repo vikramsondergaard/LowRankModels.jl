@@ -1,7 +1,7 @@
 ### Proximal gradient method
-export ProxGradParams, fit!
+export GradParams, fit!
 
-mutable struct ProxGradParams<:AbstractParams
+mutable struct GradParams<:AbstractParams
     stepsize::Float64 # initial stepsize
     max_iter::Int # maximum number of outer iterations
     inner_iter_X::Int # how many prox grad steps to take on X before moving on to Y (and vice versa)
@@ -10,7 +10,7 @@ mutable struct ProxGradParams<:AbstractParams
     rel_tol::Float64 # stop if objective decrease upon one outer iteration is less than this * objective value
     min_stepsize::Float64 # use a decreasing stepsize, stop when reaches min_stepsize
 end
-function ProxGradParams(stepsize::Number=1.0; # initial stepsize
+function GradParams(stepsize::Number=1.0; # initial stepsize
 				        max_iter::Int=100, # maximum number of outer iterations
                 inner_iter_X::Int=1, # how many prox grad steps to take on X before moving on to Y (and vice versa)
                 inner_iter_Y::Int=1, # how many prox grad steps to take on Y before moving on to X (and vice versa)
@@ -21,7 +21,7 @@ function ProxGradParams(stepsize::Number=1.0; # initial stepsize
     stepsize = convert(Float64, stepsize)
     inner_iter_X = max(inner_iter_X, inner_iter)
     inner_iter_Y = max(inner_iter_Y, inner_iter)
-    return ProxGradParams(convert(Float64, stepsize),
+    return GradParams(convert(Float64, stepsize),
                           max_iter,
                           inner_iter_X,
                           inner_iter_Y,
@@ -30,12 +30,11 @@ function ProxGradParams(stepsize::Number=1.0; # initial stepsize
                           convert(Float64, min_stepsize))
 end
 
-### FITTING
-function fit!(glrm::GLRM, params::ProxGradParams;
-			  ch::ConvergenceHistory=ConvergenceHistory("ProxGradGLRM"),
-			  verbose=true,
-			  kwargs...)
-	### initialization
+function fit!(glrm::GLRM, params::GradParams;
+              ch::ConvergenceHistory=ConvergenceHistory("GradGLRM"),
+              verbose=true,
+              kwargs...)
+    ### initialization
 	A = glrm.A # rename these for easier local access
 	losses = glrm.losses
 	rx = glrm.rx
@@ -65,12 +64,6 @@ function fit!(glrm::GLRM, params::ProxGradParams;
     XY = Array{Float64}(undef, (m, d))
     gemm!('T','N',1.0,X,Y,0.0,XY) # XY = X' * Y initial calculation
 
-    # step size (will be scaled below to ensure it never exceeds 1/\|g\|_2 or so for any subproblem)
-    alpharow = params.stepsize*ones(m)
-    alphacol = params.stepsize*ones(n)
-    # stopping criterion: stop when decrease in objective < tol, scaled by the number of observations
-    scaled_abs_tol = params.abs_tol * mapreduce(length,+,glrm.observed_features)
-
     # alternating updates of X and Y
     if verbose println("Fitting GLRM") end
     obj = objective(glrm, X, Y, XY, yidxs=yidxs)
@@ -81,10 +74,8 @@ function fit!(glrm::GLRM, params::ProxGradParams;
     g = zeros(k)
     # gradient wrt column-chunks of Y
     G = zeros(k, d)
-    # rowwise objective value
-    obj_by_row = zeros(m)
-    # columnwise objective value
-    obj_by_col = zeros(n)
+
+    scaled_abs_tol = params.abs_tol * mapreduce(length,+,glrm.observed_features)
 
     # cache views for better memory management
     # make sure we don't try to access memory not allocated to us
@@ -106,16 +97,10 @@ function fit!(glrm::GLRM, params::ProxGradParams;
     newvf = [view(newY,:,yidxs[f]) for f=1:n]
 
     for i=1:params.max_iter
-# STEP 1: X update
-        # XY = X' * Y was computed above
 
-        # reset step size if we're doing something more like alternating minimization
-        if params.inner_iter_X > 1 || params.inner_iter_Y > 1
-            for ii=1:m alpharow[ii] = params.stepsize end
-            for jj=1:n alphacol[jj] = params.stepsize end
-        end
+        stepsize = 0.5 / i
+        println("The value of stepsize at timestep $i is $stepsize")
 
-        for inneri=1:params.inner_iter_X
         for e=1:m # for every example x_e == ve[e]
             fill!(g, 0.) # reset gradient to 0
             # compute gradient of L with respect to Xᵢ as follows:
@@ -134,38 +119,17 @@ function fit!(glrm::GLRM, params::ProxGradParams;
                     gemm!('N', 'N', 1.0, vf[f], curgrad, 1.0, g)
                 end
             end
-            # take a proximal gradient step to update ve[e]
-            l = length(glrm.observed_features[e]) + 1 # if each loss function has lipshitz constant 1 this bounds the lipshitz constant of this example's objective
-            obj_by_row[e] = row_objective(glrm, e, ve[e]) # previous row objective value
-            while alpharow[e] > params.min_stepsize
-                stepsize = alpharow[e]/l
-                # newx = prox(rx[e], ve[e] - stepsize*g, stepsize) # this will use much more memory than the inplace version with linesearch below
-                ## gradient step: Xᵢ += -(α/l) * ∇{Xᵢ}L
-                axpy!(-stepsize,g,newve[e])
-                ## prox step: Xᵢ = prox_rx(Xᵢ, α/l)
-                prox!(rx[e],newve[e],stepsize)
-                if row_objective(glrm, e, newve[e]) < obj_by_row[e]
-                    copyto!(ve[e], newve[e])
-                    alpharow[e] *= 1.05
-                    break
-                else # the stepsize was too big; undo and try again only smaller
-                    copyto!(newve[e], ve[e])
-                    alpharow[e] *= .7
-                    if alpharow[e] < params.min_stepsize
-                        alpharow[e] = params.min_stepsize * 1.1
-                        break
-                    end
-                end
-            end
-        end # for e=1:m
+            # newx = prox(rx[e], ve[e] - stepsize*g, stepsize) # this will use much more memory than the inplace version with linesearch below
+            ## gradient step: Xᵢ += -(α/l) * ∇{Xᵢ}L
+            axpy!(-stepsize,g,newve[e])
+            ## prox step: Xᵢ = prox_rx(Xᵢ, α/l)
+            prox!(rx[e],newve[e],stepsize)
+            copyto!(ve[e], newve[e])
+        end
         gemm!('T','N',1.0,X,Y,0.0,XY) # Recalculate XY using the new X
-        end # inner iteration
-# STEP 2: Y update
-        for inneri=1:params.inner_iter_Y
+
         fill!(G, 0.)
         for f=1:n
-            # compute gradient of L with respect to Yⱼ as follows:
-            # ∇{Yⱼ}L = Σⱼ dLⱼ(XᵢYⱼ)/dYⱼ
             for e in glrm.observed_examples[f]
                 # but we have no function dLⱼ/dYⱼ, only dLⱼ/d(XᵢYⱼ) aka dLⱼ/du
                 # by chain rule, the result is: Σⱼ dLⱼ(XᵢYⱼ)/du * Xᵢ, where dLⱼ/du is our grad() function
@@ -180,54 +144,35 @@ function fit!(glrm::GLRM, params::ProxGradParams;
                     gemm!('N', 'T', 1.0, ve[e], curgrad, 1.0, gf[f])
                 end
             end
-            # take a proximal gradient step
-            l = length(glrm.observed_examples[f]) + 1
-            obj_by_col[f] = col_objective(glrm, f, vf[f])
-            while alphacol[f] > params.min_stepsize
-                stepsize = alphacol[f]/l
-                # newy = prox(ry[f], vf[f] - stepsize*gf[f], stepsize)
-                ## gradient step: Yⱼ += -(α/l) * ∇{Yⱼ}L
-                axpy!(-stepsize,gf[f],newvf[f])
-                ## prox step: Yⱼ = prox_ryⱼ(Yⱼ, α/l)
-                prox!(ry[f],newvf[f],stepsize)
-                new_obj_by_col = col_objective(glrm, f, newvf[f])
-                if new_obj_by_col < obj_by_col[f]
-                    copyto!(vf[f], newvf[f])
-                    alphacol[f] *= 1.05
-                    obj_by_col[f] = new_obj_by_col
-                    break
-                else
-                    copyto!(newvf[f], vf[f])
-                    alphacol[f] *= .7
-                    if alphacol[f] < params.min_stepsize
-                        alphacol[f] = params.min_stepsize * 1.1
-                        break
-                    end
-                end
-            end
-        end # for f=1:n
+            # newy = prox(ry[f], vf[f] - stepsize*gf[f], stepsize)
+            ## gradient step: Yⱼ += -(α/l) * ∇{Yⱼ}L
+            axpy!(-stepsize,gf[f],newvf[f])
+            ## prox step: Yⱼ = prox_ryⱼ(Yⱼ, α/l)
+            prox!(ry[f],newvf[f],stepsize)
+            copyto!(vf[f], newvf[f])
+        end
         gemm!('T','N',1.0,X,Y,0.0,XY) # Recalculate XY using the new Y
-        end # inner iteration
-# STEP 3: Record objective
-        obj = sum(obj_by_col)
+
+        obj = objective(glrm, X, Y, XY, yidxs=yidxs)
         t = time() - t
         update_ch!(ch, t, obj)
         t = time()
-# STEP 4: Check stopping criterion
+        # STEP 4: Check stopping criterion
         obj_decrease = ch.objective[end-1] - obj
         if i>10 && (obj_decrease < scaled_abs_tol || obj_decrease/obj < params.rel_tol)
             break
         end
-        if verbose && i%10==0
+        if verbose
             println("Iteration $i: objective value = $(ch.objective[end])")
         end
+
     end
 
     return glrm.X, glrm.Y, ch
 end
 
-function fit!(glrm::FairGLRM, params::ProxGradParams;
-              ch::ConvergenceHistory=ConvergenceHistory("ProxGradGLRM"),
+function fit!(glrm::FairGLRM, params::GradParams;
+              ch::ConvergenceHistory=ConvergenceHistory("GradGLRM"),
               verbose=true,
               kwargs...)
     ### initialization
@@ -305,86 +250,68 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
     end
 
     for i=1:params.max_iter
-        # STEP 1: X update
-        # XY = X' * Y was computed above
 
-        # reset step size if we're doing something more like alternating minimization
-        if params.inner_iter_X > 1 || params.inner_iter_Y > 1
-        for ii=1:m alpharow[ii] = params.stepsize end
-        for jj=1:n alphacol[jj] = params.stepsize end
-        end
-
-        # new stepsize value (defined by me) - it just slowly decreases as
-        # the optimisation process continues
         stepsize = 0.5 / i
+        println("The value of stepsize at timestep $i is $stepsize")
 
-        for inneri=1:params.inner_iter_X
-            refresh = true
-            for e=1:m # for every example x_e == ve[e]
-                fill!(g, 0.) # reset gradient to 0
-                # compute gradient of L with respect to Xᵢ as follows:
-                # ∇{Xᵢ}L = Σⱼ dLⱼ(XᵢYⱼ)/dXᵢ
-                for f in glrm.observed_features[e]
-                    # but we have no function dLⱼ/dXᵢ, only dLⱼ/d(XᵢYⱼ) aka dLⱼ/du
-                    # by chain rule, the result is: Σⱼ (dLⱼ(XᵢYⱼ)/du * Yⱼ), where dLⱼ/du is our grad() function
-                    curgrad = grad(group_func, e, f, losses, XY, A, Z, glrm.observed_features, refresh=refresh)
-                    curgrad = curgrad * magnitude_Ω
-                    if i == 1
-                        println("For cell ($e, $f), gradient wrt X for fGLRM is $curgrad")
-                    end
-                    refresh = false
-                    # if i == 1 && e == 1
-                    #     println("For cell ($e, $f), the current gradient is: $curgrad")
-                    # end
-                    if isa(curgrad, Number)
-                        axpy!(curgrad, vf[f], g)
-                    else
-                        # on v0.4: gemm!('N', 'T', 1.0, vf[f], curgrad, 1.0, g)
-                        gemm!('N', 'N', 1.0, vf[f], curgrad, 1.0, g)
-                    end
+        refresh = true
+        for e=1:m # for every example x_e == ve[e]
+            fill!(g, 0.) # reset gradient to 0
+            # compute gradient of L with respect to Xᵢ as follows:
+            # ∇{Xᵢ}L = Σⱼ dLⱼ(XᵢYⱼ)/dXᵢ
+            for f in glrm.observed_features[e]
+                # but we have no function dLⱼ/dXᵢ, only dLⱼ/d(XᵢYⱼ) aka dLⱼ/du
+                # by chain rule, the result is: Σⱼ (dLⱼ(XᵢYⱼ)/du * Yⱼ), where dLⱼ/du is our grad() function
+                curgrad = grad(group_func, e, f, losses, XY, A, Z, glrm.observed_features, refresh=refresh)
+                curgrad = curgrad * magnitude_Ω
+                refresh = false
+                if i == 1
+                    println("For cell ($e, $f), gradient wrt X for GLRM is $curgrad")
                 end
-                # take a proximal gradient step to update ve[e]
-                ## gradient step: Xᵢ += -(α/l) * ∇{Xᵢ}L
-                axpy!(-stepsize,g,newve[e])
-                ## prox step: Xᵢ = prox_rx(Xᵢ, α/l)
-                prox!(rx[e],newve[e],stepsize)
-                copyto!(ve[e], newve[e])
-            end # for e=1:m
-            gemm!('T','N',1.0,X,Y,0.0,XY) # Recalculate XY using the new X
-        end # inner iteration
-        # STEP 2: Y update
-        for inneri=1:params.inner_iter_Y
-            refresh = true
-            fill!(G, 0.)
-            for f=1:n
-                # compute gradient of L with respect to Yⱼ as follows:
-                # ∇{Yⱼ}L = Σⱼ dLⱼ(XᵢYⱼ)/dYⱼ
-                for e in glrm.observed_examples[f]
-                    # but we have no function dLⱼ/dYⱼ, only dLⱼ/d(XᵢYⱼ) aka dLⱼ/du
-                    # by chain rule, the result is: Σⱼ dLⱼ(XᵢYⱼ)/du * Xᵢ, where dLⱼ/du is our grad() function
-                    curgrad = grad(group_func, e, f, losses, XY, A, Z, glrm.observed_features, refresh=refresh)
-                    curgrad = curgrad * magnitude_Ω
-                    if i == 1
-                        println("For cell ($e, $f), gradient wrt Y for fGLRM is $curgrad")
-                    end
-                    refresh = false
-                    if isa(curgrad, Number)
-                        axpy!(curgrad, ve[e], gf[f])
-                    else
-                        # on v0.4: gemm!('N', 'T', 1.0, ve[e], curgrad, 1.0, gf[f])
-                        gemm!('N', 'T', 1.0, ve[e], curgrad, 1.0, gf[f])
-                    end
+                if isa(curgrad, Number)
+                    axpy!(curgrad, vf[f], g)
+                else
+                    # on v0.4: gemm!('N', 'T', 1.0, vf[f], curgrad, 1.0, g)
+                    gemm!('N', 'N', 1.0, vf[f], curgrad, 1.0, g)
                 end
+            end
+            # newx = prox(rx[e], ve[e] - stepsize*g, stepsize) # this will use much more memory than the inplace version with linesearch below
+            ## gradient step: Xᵢ += -(α/l) * ∇{Xᵢ}L
+            axpy!(-stepsize,g,newve[e])
+            ## prox step: Xᵢ = prox_rx(Xᵢ, α/l)
+            prox!(rx[e],newve[e],stepsize)
+            copyto!(ve[e], newve[e])
+        end
+        gemm!('T','N',1.0,X,Y,0.0,XY) # Recalculate XY using the new X
 
-                ## gradient step: Yⱼ += -(α/l) * ∇{Yⱼ}L
-                axpy!(-stepsize,gf[f],newvf[f])
-                ## prox step: Yⱼ = prox_ryⱼ(Yⱼ, α/l)
-                prox!(ry[f],newvf[f],stepsize)
-                copyto!(vf[f], newvf[f])
-            end # for f=1:n
-            gemm!('T','N',1.0,X,Y,0.0,XY) # Recalculate XY using the new Y
-        end # inner iteration
-        # STEP 3: Record objective
+        fill!(G, 0.)
+        refresh = true
+        for f=1:n
+            for e in glrm.observed_examples[f]
+                # but we have no function dLⱼ/dYⱼ, only dLⱼ/d(XᵢYⱼ) aka dLⱼ/du
+                # by chain rule, the result is: Σⱼ dLⱼ(XᵢYⱼ)/du * Xᵢ, where dLⱼ/du is our grad() function
+                curgrad = grad(group_func, e, f, losses, XY, A, Z, glrm.observed_features, refresh=refresh)
+                curgrad = curgrad * magnitude_Ω
+                refresh = false
+                if i == 1
+                    println("For cell ($e, $f), gradient wrt Y for GLRM is $curgrad")
+                end
+                if isa(curgrad, Number)
+                    axpy!(curgrad, ve[e], gf[f])
+                else
+                    # on v0.4: gemm!('N', 'T', 1.0, ve[e], curgrad, 1.0, gf[f])
+                    gemm!('N', 'T', 1.0, ve[e], curgrad, 1.0, gf[f])
+                end
+            end
+            # newy = prox(ry[f], vf[f] - stepsize*gf[f], stepsize)
+            ## gradient step: Yⱼ += -(α/l) * ∇{Yⱼ}L
+            axpy!(-stepsize,gf[f],newvf[f])
+            ## prox step: Yⱼ = prox_ryⱼ(Yⱼ, α/l)
+            prox!(ry[f],newvf[f],stepsize)
+            copyto!(vf[f], newvf[f])
+        end
+        gemm!('T','N',1.0,X,Y,0.0,XY) # Recalculate XY using the new Y
+
         obj = objective(glrm, X, Y, XY, yidxs=yidxs)
         t = time() - t
         update_ch!(ch, t, obj)
@@ -394,10 +321,9 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
         if i>10 && (obj_decrease < scaled_abs_tol || obj_decrease/obj < params.rel_tol)
             break
         end
-        if verbose && i % 10 == 0
+        if verbose
             println("Iteration $i: objective value = $(ch.objective[end])")
         end
     end
-
     return glrm.X, glrm.Y, ch
 end
