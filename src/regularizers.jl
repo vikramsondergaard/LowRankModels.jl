@@ -16,6 +16,7 @@ export Regularizer, ProductRegularizer, # abstract types
        fixed_last_latent_features, FixedLastLatentFeaturesConstraint,
        OrdinalReg, MNLOrdinalReg,
        RemQuadReg,
+       OrthogonalReg,
        # methods on regularizers
        prox!, prox,
        # utilities
@@ -421,6 +422,33 @@ prox!(r::RemQuadReg, u::Array{Float64}, alpha::Number) = begin
         mul!(u, 1 / (1 + 2 * alpha * r.scale))
 end
 evaluate(r::RemQuadReg, a::AbstractArray) = r.scale * sum(abs2, a - r.m)
+
+mutable struct OrthogonalReg<:Regularizer
+    scale::Float64
+    s::Array{Number, 1}
+end
+OrthogonalReg(s::Array{Number, 1}) = OrthogonalReg(1, s)
+is_orthogonal(s::Array{Number, 1}, X::AbstractArray) = begin
+    for i=1:m
+        if abs(sum(X[:, i] .* s)) > TOL return false end
+    end
+    return true
+end
+reject(s::Array{Number, 1}, X::AbstractArray) = [dot(X[:, i], s) / dot(s, s) * s for i=1:m]
+evaluate(r::OrthogonalReg, u::AbstractArray, cache::Bool=false, use_cache::Bool=false) = begin
+    if use_cache return cache ? 0 : Inf end
+    return is_orthogonal(r.s, u) ? 0 : Inf
+end
+prox(r::OrthogonalReg, u::AbstractArray, cache::AbstractArray=nothing, use_cache::Bool=false) = begin
+    if use_cache return u - cache end
+    return u - reject(r.s, u)
+end
+prox!(r::OrthogonalReg, u::AbstractArray, cache::AbstractArray=nothing, use_cache::Bool=false) = begin
+    if use_cache u -= cache
+    else         u -= reject(r.s, u)
+    end
+    u
+end
 
 ## simpler method for numbers, not arrays
 evaluate(r::Regularizer, u::Number) = evaluate(r, [u])
