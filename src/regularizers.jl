@@ -434,18 +434,18 @@ is_orthogonal(s::Array{Number, 1}, X::AbstractArray) = begin
     end
     return true
 end
-reject(s::Array{Number, 1}, X::AbstractArray) = [dot(X[:, i], s) / dot(s, s) * s for i=1:m]
+project(s::Array{Number, 1}, X::AbstractArray) = [dot(X[:, i], s) / dot(s, s) * s for i=1:m]
 evaluate(r::OrthogonalReg, u::AbstractArray, cache::Bool=false, use_cache::Bool=false) = begin
     if use_cache return cache ? 0 : Inf end
     return is_orthogonal(r.s, u) ? 0 : Inf
 end
 prox(r::OrthogonalReg, u::AbstractArray, cache::AbstractArray=nothing, use_cache::Bool=false) = begin
     if use_cache return u - cache end
-    return u - reject(r.s, u)
+    return u - project(r.s, u)
 end
 prox!(r::OrthogonalReg, u::AbstractArray, cache::AbstractArray=nothing, use_cache::Bool=false) = begin
     if use_cache u -= cache
-    else         u -= reject(r.s, u)
+    else         u -= project(r.s, u)
     end
     u
 end
