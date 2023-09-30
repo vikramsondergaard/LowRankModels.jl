@@ -347,9 +347,14 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
                 ## gradient step: Xᵢ += -(α/l) * ∇{Xᵢ}L
                 axpy!(-stepsize,g,newve[e])
                 ## prox step: Xᵢ = prox_rx(Xᵢ, α/l)
-                prox!(rx[e],newve[e],stepsize)
+                if !isa(rx[e], OrthogonalReg)
+                    prox!(rx[e],newve[e],stepsize)
+                end
                 copyto!(ve[e], newve[e])
             end # for e=1:m
+            if isa(rx[1], OrthogonalReg)
+                prox!(rx[1], newve, stepsize)
+            end
             gemm!('T','N',1.0,X,Y,0.0,XY) # Recalculate XY using the new X
         end # inner iteration
         # STEP 2: Y update
@@ -379,9 +384,14 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
                 ## gradient step: Yⱼ += -(α/l) * ∇{Yⱼ}L
                 axpy!(-stepsize,gf[f],newvf[f])
                 ## prox step: Yⱼ = prox_ryⱼ(Yⱼ, α/l)
-                prox!(ry[f],newvf[f],stepsize)
+                if !isa(ry[f], OrthogonalReg)
+                    prox!(ry[f],newvf[f],stepsize)
+                end
                 copyto!(vf[f], newvf[f])
             end # for f=1:n
+            if isa(ry[1], OrthogonalReg)
+                prox!(ry[1], newvf, stepsize)
+            end
             gemm!('T','N',1.0,X,Y,0.0,XY) # Recalculate XY using the new Y
         end # inner iteration
         # STEP 3: Record objective
