@@ -425,28 +425,39 @@ evaluate(r::RemQuadReg, a::AbstractArray) = r.scale * sum(abs2, a - r.m)
 
 mutable struct OrthogonalReg<:Regularizer
     scale::Float64
-    s::Array{Number, 1}
+    s::AbstractArray
 end
-OrthogonalReg(s::Array{Number, 1}) = OrthogonalReg(1, s)
-is_orthogonal(s::Array{Number, 1}, X::AbstractArray) = begin
-    for i=1:m
-        if abs(sum(X[:, i] .* s)) > TOL return false end
+OrthogonalReg(s::AbstractArray) = OrthogonalReg(1, s)
+is_orthogonal(s::AbstractArray, X::AbstractArray) = begin
+    if length(size(X)) == 1 return abs(dot(X, s)) <= TOL end
+    for i=1:size(X, 1)
+        if abs(dot(X[i, :], s)) > TOL return false end
     end
     return true
 end
-project(s::Array{Number, 1}, X::AbstractArray) = [dot(X[:, i], s) / dot(s, s) * s for i=1:m]
-evaluate(r::OrthogonalReg, u::AbstractArray, cache::Bool=false, use_cache::Bool=false) = begin
-    if use_cache return cache ? 0 : Inf end
-    return is_orthogonal(r.s, u) ? 0 : Inf
+project(s::AbstractArray, X::AbstractArray) = begin
+    if length(size(X)) == 1 return dot(X, s) / dot(s, s) * s end
+    return [dot(X[i, :], s) / dot(s, s) * s for i=1:m]
 end
-prox(r::OrthogonalReg, u::AbstractArray, cache::AbstractArray=nothing, use_cache::Bool=false) = begin
-    if use_cache return u - cache end
-    return u - project(r.s, u)
-end
-prox!(r::OrthogonalReg, u::AbstractArray, cache::AbstractArray=nothing, use_cache::Bool=false) = begin
-    if use_cache u -= cache
-    else         u -= project(r.s, u)
+normalise(u::AbstractArray) = begin
+    println("u is:")
+    display(u)
+    if length(size(u)) == 1 return u .- mean(u)
+    else                    return u - broadcast(-, u, mean(u))
     end
+end
+# normalise(u::Array{<:Number, 2}) = broadcast(-, u, mean(u, dims=1))
+evaluate(r::OrthogonalReg, u::AbstractArray) = is_orthogonal(r.s, normalise(u)) ? 0 : Inf
+prox(r::OrthogonalReg, u::AbstractArray, alpha::Number) = begin
+    mean_u = length(size(u)) == 1 ? mean(u) : mean(u, dims=1)
+    normalised_u = normalise(u)
+    orthog_u = normalised_u - project(r.s, normalised_u)
+    if length(size(orthog_u)) == 1 return orthog_u .+ mean_u
+    else                           return broadcast(+, orthog_u, mean_u)
+    end
+end
+prox!(r::OrthogonalReg, u::AbstractArray, alpha::Number) = begin
+    u = prox(r, u)
     u
 end
 
