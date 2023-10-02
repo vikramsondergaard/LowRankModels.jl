@@ -423,41 +423,128 @@ prox!(r::RemQuadReg, u::Array{Float64}, alpha::Number) = begin
 end
 evaluate(r::RemQuadReg, a::AbstractArray) = r.scale * sum(abs2, a - r.m)
 
+"""
+A regulariser for enforcing that every row of X (assuming the rows of X
+are m-dimensional vectors) is orthogonal with the protected characteristic
+of the data.
+
+## Parameters
+- `scale`: Not used, but needed to be a regulariser.
+- `s`:     The protected characteristic which each column of X needs to be
+           orthogonal to (after standardising the mean).
+"""
 mutable struct OrthogonalReg<:Regularizer
     scale::Float64
     s::AbstractArray
 end
 OrthogonalReg(s::AbstractArray) = OrthogonalReg(1, s)
+
+"""
+Checks if two vectors are orthogonal to one another.
+
+## Parameters
+- `s`: The protected characteristic of the data. This parameter needs to be
+       orthogonal to every row in `X`.
+- `X`: The data. Each row in this parameter must be orthogonal to `s`.
+"""
 is_orthogonal(s::AbstractArray, X::AbstractArray) = begin
+    # Note there is a small numerical tolerance; feel free to change this if
+    # you'd like
     if length(size(X)) == 1 return abs(dot(X, s)) <= TOL end
     for i=1:size(X, 1)
         if abs(dot(X[i, :], s)) > TOL return false end
     end
     return true
 end
+
+"""
+Calculate the vector projection of each column of `X` onto `s`.
+
+## Parameters
+- `s`: The vector onto which each element will be projected.
+- `X`: The vector(s) that are being projected onto `s`.
+"""
 project(s::AbstractArray, X::AbstractArray) = begin
-    if length(size(X)) == 1 return dot(X, s) / dot(s, s) * s end
-    return [dot(X[i, :], s) / dot(s, s) * s for i=1:m]
+    if length(size(X)) == 1 return dot(X, s) / dot(s, s) * s end # 1 dimension
+    return [dot(X[i, :], s) / dot(s, s) * s for i=1:m]           # 2+ dimensions
 end
-normalise(u::AbstractArray) = begin
-    println("u is:")
-    display(u)
-    if length(size(u)) == 1 return u .- mean(u)
-    else                    return u - broadcast(-, u, mean(u))
+
+"""
+Normalises data. This is required to ensure uncorrelatedness, since the two
+vectors need to be mean-centred at 0 and be orthogonal.
+
+## Parameters
+- `u`: The array to be normalised.
+"""
+normalise(u::AbstractArray) = begin\
+    if length(size(u)) == 1 return u .- mean(u)                 # 1 dimension
+    else                    return u - broadcast(-, u, mean(u)) # 2+ dimensions
     end
 end
-# normalise(u::Array{<:Number, 2}) = broadcast(-, u, mean(u, dims=1))
+
+"""
+Determines how much regularisation penalty to add.
+
+## Parameters
+- `r`: The orthogonal regulariser. The type of `r` specifies the procedure for
+       `evaluate()`.
+- `u`: The data to be evaluated.
+
+## Returns
+
+0 if every column of `u` is orthogonal to `r` when mean-centred (or if `u` is
+orthogonal to `r` is `u` is a vector), and ∞ if not.
+"""
 evaluate(r::OrthogonalReg, u::AbstractArray) = is_orthogonal(r.s, normalise(u)) ? 0 : Inf
+
+"""
+Computes a proximal gradient step. This is achieved by finding the vector
+projection of the sample data onto the protected characteristic.
+
+## Parameters
+- `r`:     The orthogonal regulariser. The type of this regulariser specifies
+           the type of proximal gradient step that should be carried out.
+- `u`:     The vector(s) on which to perform the proximal gradient step.
+- `alpha`: The step size of the proximal gradient step, this isn't used in this
+           specific proximal gradient step.
+
+## Returns
+
+The vector projection of `u` onto the protected characteristic stored in `r`.
+"""
 prox(r::OrthogonalReg, u::AbstractArray, alpha::Number) = begin
+    # Save the mean for later, after normalisation
     mean_u = length(size(u)) == 1 ? mean(u) : mean(u, dims=1)
     normalised_u = normalise(u)
+    # Get the orthogonal component of the vector projection (the vector
+    # rejection?)
     orthog_u = normalised_u - project(r.s, normalised_u)
+    if length(size(orthog_u)) == 1 return orthog_u .+ mean_u             # 1 dimension
+    else                           return broadcast(+, orthog_u, mean_u) # 2+ dimensions
+    end
+end
+prox!(r::OrthogonalReg, u::AbstractArray, alpha::Number) = begin
+    u = prox(r, u, alpha)
+    u
+end
+
+mutable struct SoftOrthogonalReg<:Regularizer
+    scale::Float64
+    s::AbstractArray
+end
+SoftOrthogonalReg(s::AbstractArray, lambda::Float64) = SoftOrthogonalReg(1, s, lambda)
+SoftOrthogonalReg(s::AbstractArray) = SoftOrthogonalReg(1, s, 1)
+evaluate(r::SoftOrthogonalReg, u::AbstractArray) = r.scale * dot(u, r.s)^2
+prox(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
+    mean_u = length(size(u)) == 1 ? mean(u) : mean(u, dims=1)
+    normalised_u = normalise(u)
+    orthog_u = normalised_u - alpha * r.scale * project(r.s, normalised_u)
     if length(size(orthog_u)) == 1 return orthog_u .+ mean_u
     else                           return broadcast(+, orthog_u, mean_u)
     end
 end
 prox!(r::OrthogonalReg, u::AbstractArray, alpha::Number) = begin
-    u = prox(r, u)
+    u = prox(r, u, alpha)
     u
 end
 
