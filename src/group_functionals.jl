@@ -23,10 +23,7 @@ satisfies the following requirements:
 function validate_weights(l::WeightedGroupFunctional)
     # Check criterion 2
     c = isapprox(sum(l.weights), 1.0, atol=0.01)
-    if !c
-        println("Expected weights to sum to 1.0, but they instead summed to $(sum(l.weights))")
-        @assert c
-    end
+    @assert isapprox(sum(l.weights), 1.0, atol=0.01) "Expected weights to sum to 1.0, but they instead summed to $(sum(l.weights))"
     # Check criterion 1
     for w in l.weights @assert w >= 0 end
 end
@@ -341,10 +338,11 @@ mutable struct WeightedLogSumExponentialLoss<:WeightedGroupFunctional
     α::Float64
     weights::Array{Float64}
     Z::Array{Float64}
+    magnitude_Ωₖ::Array{Int64}
 end
 
 WeightedLogSumExponentialLoss(α::Float64, weights::Array{Float64}) =
-    WeightedLogSumExponentialLoss(α, weights, zeros(Float64, length(weights)))
+    WeightedLogSumExponentialLoss(α, weights, zeros(Float64, length(weights)), zeros(Int64, length(weights)))
 
 """
 Evaluates the total loss for given data. Note that this method is often adapted
@@ -462,6 +460,7 @@ function grad(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
             # Cache this in the WSE loss instance so we don't have to compute
             # it again later
             l.Z[k] = eᵅᶻᵏ
+            l.magnitude_Ωₖ[k] = size_Ωₖ
         end
     end
     # This is the group that row i belongs in
@@ -469,7 +468,6 @@ function grad(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
     for (k, group) in enumerate(Z)
         if (i in group) k_i = k; break end
     end
-    size_Ωₖ₍ᵢ₎ = sum(length(observed_features[f]) for f in Z[k_i])
     # Get the product of the k-th weight and the k-th exponential
     wₖ₍ᵢ₎eᵅᶻ = l.weights[k_i] * l.Z[k_i]
     ∑ₖwₖeᵅᶻ = sum(l.weights .* l.Z)
@@ -477,15 +475,20 @@ function grad(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
     # grad(losses[j], XY[i, yidxs[j]], A[i, j]) * wₖ₍ᵢ₎eᵅᶻ / (size_Ωₖ₍ᵢ₎ * ∑ₖwₖeᵅᶻ)
     u = XY[i, yidxs[j]]
     a = A[i, j]
+    
     if isa(loss, MultinomialLoss) || isa(loss, OvALoss)
-        u = Int(u)
-        g = grad(loss, [u == i for i=1:embedding_dim(loss)], Int(a))
+        if isa(u, Number)
+            u = Int(u)
+            g = grad(loss, [u == i for i=1:embedding_dim(loss)], Int(a))
+        else
+            g = grad(loss, u, a)
+        end
     elseif isa(loss, WeightedHingeLoss)
         g = grad(loss, u, Bool(a))
     else
         g = grad(loss, u, a)
     end
-    g * wₖ₍ᵢ₎eᵅᶻ / (size_Ωₖ₍ᵢ₎ * ∑ₖwₖeᵅᶻ)
+    g * wₖ₍ᵢ₎eᵅᶻ / (l.magnitude_Ωₖ[k_i] * ∑ₖwₖeᵅᶻ)
 end
 
 # function grad_y(l::WeightedLogSumExponentialLoss, i, j, losses::Array{Loss, 1},
