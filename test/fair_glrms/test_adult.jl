@@ -46,18 +46,12 @@ X_init = randn(k, m)
 embedding_dims = n + (n_workclasses - 1) + (n_relationships - 1) + (n_races - 1)
 Y_init = randn(k, embedding_dims)
 
-for i=1:n
-    μ = mean(A[:, i])
-    σ² = varm(A[:, i], μ)
-    mul!(losses[i], 1.0 / σ²)
-end
-
 glrm = GLRM(A, losses, QuadReg(0.1), QuadReg(0.1), k, X=deepcopy(X_init), Y=deepcopy(Y_init))
 glrmX, glrmY, glrmch = fit!(glrm, params=p, verbose=true)
 println("successfully fit vanilla GLRM")
 
 fglrm = FairGLRM(A, losses, QuadReg(0.1), QuadReg(0.1), k, index_of_gender,
-    WeightedLogSumExponentialLoss(10^(-6), [Float64(length(groups[i])) for i=1:n_genders]),
+    WeightedLogSumExponentialLoss(10^(-6), [Float64(length(groups[i])) / m for i=1:n_genders]),
     X=deepcopy(X_init), Y=deepcopy(Y_init), Z=groups)
 fglrmX, fglrmY, fglrmch = fit!(fglrm, params=p, verbose=true)
 println("successfully fit fair GLRM")
