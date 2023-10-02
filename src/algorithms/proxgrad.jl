@@ -124,9 +124,9 @@ function fit!(glrm::GLRM, params::ProxGradParams;
                 # but we have no function dLⱼ/dXᵢ, only dLⱼ/d(XᵢYⱼ) aka dLⱼ/du
                 # by chain rule, the result is: Σⱼ (dLⱼ(XᵢYⱼ)/du * Yⱼ), where dLⱼ/du is our grad() function
                 curgrad = grad(losses[f],XY[e,yidxs[f]],A[e,f])
-                if i == 1
-                    println("For cell ($e, $f), gradient wrt X for GLRM is $curgrad")
-                end
+                # if i == 1
+                #     println("For cell ($e, $f), gradient wrt X for GLRM is $curgrad")
+                # end
                 if isa(curgrad, Number)
                     axpy!(curgrad, vf[f], g)
                 else
@@ -170,9 +170,9 @@ function fit!(glrm::GLRM, params::ProxGradParams;
                 # but we have no function dLⱼ/dYⱼ, only dLⱼ/d(XᵢYⱼ) aka dLⱼ/du
                 # by chain rule, the result is: Σⱼ dLⱼ(XᵢYⱼ)/du * Xᵢ, where dLⱼ/du is our grad() function
                 curgrad = grad(losses[f],XY[e,yidxs[f]],A[e,f])
-                if i == 1
-                    println("For cell ($e, $f), gradient wrt Y for GLRM is $curgrad")
-                end
+                # if i == 1
+                #     println("For cell ($e, $f), gradient wrt Y for GLRM is $curgrad")
+                # end
                 if isa(curgrad, Number)
                     axpy!(curgrad, ve[e], gf[f])
                 else
@@ -297,6 +297,7 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
     newY = copy(Y)
     newve = [view(newX,:,e) for e=1:m]
     newvf = [view(newY,:,yidxs[f]) for f=1:n]
+    newvk = [view(newX,e,:) for e=1:k]
 
     if eltype(glrm.observed_features) == UnitRange{Int64}
         magnitude_Ω = sum(length(f) for f in glrm.observed_features)
@@ -316,7 +317,7 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
 
         # new stepsize value (defined by me) - it just slowly decreases as
         # the optimisation process continues
-        stepsize = 0.5 / i
+        stepsize = 0.5 / (i * (n + 1))
 
         for inneri=1:params.inner_iter_X
             refresh = true
@@ -329,9 +330,9 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
                     # by chain rule, the result is: Σⱼ (dLⱼ(XᵢYⱼ)/du * Yⱼ), where dLⱼ/du is our grad() function
                     curgrad = grad(group_func, e, f, losses, XY, A, Z, glrm.observed_features, refresh=refresh)
                     curgrad = curgrad * magnitude_Ω
-                    if i == 1
-                        println("For cell ($e, $f), gradient wrt X for fGLRM is $curgrad")
-                    end
+                    # if i == 1
+                    #     println("For cell ($e, $f), gradient wrt X for fGLRM is $curgrad")
+                    # end
                     refresh = false
                     # if i == 1 && e == 1
                     #     println("For cell ($e, $f), the current gradient is: $curgrad")
@@ -353,8 +354,11 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
                 copyto!(ve[e], newve[e])
             end # for e=1:m
             if isa(rx[1], OrthogonalReg)
-                prox!(rx[1], newve, stepsize)
+                println("Performing prox() for iteration $i")
+                for e=1:k prox!(rx[1], newvk[e], stepsize) end
             end
+            println("The new X is")
+            display(X)
             gemm!('T','N',1.0,X,Y,0.0,XY) # Recalculate XY using the new X
         end # inner iteration
         # STEP 2: Y update
@@ -369,9 +373,9 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
                     # by chain rule, the result is: Σⱼ dLⱼ(XᵢYⱼ)/du * Xᵢ, where dLⱼ/du is our grad() function
                     curgrad = grad(group_func, e, f, losses, XY, A, Z, glrm.observed_features, refresh=refresh)
                     curgrad = curgrad * magnitude_Ω
-                    if i == 1
-                        println("For cell ($e, $f), gradient wrt Y for fGLRM is $curgrad")
-                    end
+                    # if i == 1
+                    #     println("For cell ($e, $f), gradient wrt Y for fGLRM is $curgrad")
+                    # end
                     refresh = false
                     if isa(curgrad, Number)
                         axpy!(curgrad, ve[e], gf[f])
@@ -404,7 +408,7 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
         if i>10 && (obj_decrease < scaled_abs_tol || obj_decrease/obj < params.rel_tol)
             break
         end
-        if verbose && i % 10 == 0
+        if verbose
             println("Iteration $i: objective value = $(ch.objective[end])")
         end
     end
