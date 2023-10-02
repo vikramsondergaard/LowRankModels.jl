@@ -54,8 +54,8 @@ function partition_groups(A, s::Int, n_groups::Int)
     for r=1:num_rows
         row = A[r, :]
         # Get the unique value `k` (see the docstring for more detail)
-        if n_groups < 3
-            k = row[s] + 1
+        if n_groups == 2
+            k = max(row[s] + 1, 1) # handles boolean data - this will go from {-1, 1} to {1, 2}
         else 
             k = row[s]
         end
