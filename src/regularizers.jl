@@ -532,8 +532,7 @@ mutable struct SoftOrthogonalReg<:Regularizer
     scale::Float64
     s::AbstractArray
 end
-SoftOrthogonalReg(s::AbstractArray, lambda::Float64) = SoftOrthogonalReg(1, s, lambda)
-SoftOrthogonalReg(s::AbstractArray) = SoftOrthogonalReg(1, s, 1)
+SoftOrthogonalReg(s::AbstractArray) = SoftOrthogonalReg(1, s)
 evaluate(r::SoftOrthogonalReg, u::AbstractArray) = r.scale * dot(u, r.s)^2
 prox(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
     mean_u = length(size(u)) == 1 ? mean(u) : mean(u, dims=1)
