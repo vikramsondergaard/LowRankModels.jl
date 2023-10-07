@@ -437,7 +437,9 @@ mutable struct OrthogonalReg<:Regularizer
     scale::Float64
     s::AbstractArray
 end
-OrthogonalReg(s::AbstractArray) = OrthogonalReg(1, s)
+OrthogonalReg(scale::Float64, s::AbstractArray) = 
+    mean(s) == 0 ? OrthogonalReg(scale, s) : OrthogonalReg(scale, normalise(s))
+OrthogonalReg(s::AbstractArray) = OrthogonalReg(1, normalise(s))
 
 """
 Checks if two vectors are orthogonal to one another.
@@ -476,7 +478,7 @@ vectors need to be mean-centred at 0 and be orthogonal.
 ## Parameters
 - `u`: The array to be normalised.
 """
-normalise(u::AbstractArray) = begin\
+normalise(u::AbstractArray) = begin
     if length(size(u)) == 1 return u .- mean(u)                 # 1 dimension
     else                    return u - broadcast(-, u, mean(u)) # 2+ dimensions
     end
@@ -532,6 +534,8 @@ mutable struct SoftOrthogonalReg<:Regularizer
     scale::Float64
     s::AbstractArray
 end
+SoftOrthogonalReg(scale::Float64, s::AbstractArray) =
+    mean(s) == 0 ? SoftOrthogonalReg(scale, s) : SoftOrthogonalReg(scale, normalise(s))
 SoftOrthogonalReg(s::AbstractArray) = SoftOrthogonalReg(1, s)
 evaluate(r::SoftOrthogonalReg, u::AbstractArray) = r.scale * dot(u, r.s)^2
 prox(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
