@@ -1,6 +1,34 @@
+using LinearAlgebra
+
 import Distributions: Gamma
-import LinearAlgebra: dot, tril, I, trace, Diagonal
 import Statistics: median
+
+"""
+Code for computing HSIC of two matrices
+
+Translated from Python code at: https://github.com/amber0309/HSIC/blob/master/HSIC.py
+"""
+
+"""
+Julia implementation of Hilbert Schmidt Independence Criterion
+hsic_gam implements the HSIC test using a Gamma approximation
+
+Gretton, A., Fukumizu, K., Teo, C. H., Song, L., Scholkopf, B., 
+& Smola, A. J. (2007). A kernel statistical test of independence. 
+In Advances in neural information processing systems (pp. 585-592).
+
+Shoubo (shoubo.sub AT gmail.com)
+09/11/2016
+
+Inputs:
+X 		n by dim_x matrix
+Y 		n by dim_y matrix
+alph 		level of test
+
+Outputs:
+testStat	test statistics
+thresh		test threshold for level alpha test
+"""
 
 function rbf_dot(pattern1::AbstractArray, pattern2::AbstractArray, deg::Float64)
     # Get the size of both matrices for the RBF
