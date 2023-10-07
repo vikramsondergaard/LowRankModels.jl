@@ -62,21 +62,15 @@ end
 function test_fit()
     A₃ = Any[A₃_cat A₃_bool A₃_real A₃_ord]
     m = size(A₃, 1)
-    # normalise!(A₃)
-    println("Normalised A₃ is")
-    display(A₃)
     prot_cat = 2
     losses₃ = [OvALoss(3, bin_loss=HingeLoss()), HingeLoss(),
         QuadLoss(), OrdinalHingeLoss(4)]
     groups = partition_groups(A₃, prot_cat, 2)
     p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
     display(A₃[:, prot_cat])
-    fglrm = FairGLRM(A₃, losses₃, OrthogonalReg(normalise(A₃[:, prot_cat])), ZeroReg(), 2, prot_cat,
+    fglrm = FairGLRM(A₃, losses₃, OrthogonalReg(A₃[:, prot_cat]), ZeroReg(), 2, prot_cat,
         WeightedLogSumExponentialLoss(10^(-6), [Float64(length(groups[i])) / m for i=1:2]),
         Z=groups)
-    # fglrm = FairGLRM(A₃, losses₃, ZeroReg(), ZeroReg(), 2, prot_cat,
-    #     WeightedLogSumExponentialLoss(10^(-6), [Float64(length(groups[i])) / m for i=1:2]),
-    #     Z=groups)
     fglrmX, fglrmY, _ = fit!(fglrm, params=p, verbose=true)
     println("fglrmX is:")
     display(fglrmX)
