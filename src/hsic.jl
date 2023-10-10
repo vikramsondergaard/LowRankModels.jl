@@ -1,7 +1,6 @@
-using LinearAlgebra
-
 import Distributions: Gamma
-import Statistics: median
+
+export hsic_gam, hsic_grad
 
 """
 Code for computing HSIC of two matrices
@@ -35,9 +34,11 @@ function rbf_dot(pattern1::AbstractArray, pattern2::AbstractArray, deg::Float64)
     size1 = size(pattern1, 1)
     size2 = size(pattern2, 1)
 
+    # Get sum of squares along the rows
     G = [dot(pattern1[i, :], pattern1[i, :]) for i=1:size1]
     H = [dot(pattern2[i, :], pattern2[i, :]) for i=1:size2]
 
+    # 
     Q = repeat(G, outer=[1, size2])
     R = repeat(H', outer=[size1, 1])
 
@@ -62,7 +63,7 @@ function get_width(M::AbstractArray)
     sqrt(0.5 * median(filter(d -> d > 0, dists)))
 end
 
-function hsic_gam(X, Y, alph=0.5)
+function hsic_gam(X::AbstractArray, Y::AbstractArray, alph::Float64=0.5)
     n = size(X, 1)
     width_x = get_width(X)
     width_y = get_width(Y)
@@ -97,4 +98,38 @@ function hsic_gam(X, Y, alph=0.5)
     thresh = quantile(Gamma(al, bet), 1 - alph)
 
     test_stat, thresh
+end
+
+function hsic_grad(X::AbstractArray, Y::AbstractArray)
+    n, dim_x = size(X)
+    width_x = get_width(X)
+    width_y = get_width(Y)
+    
+    H = Matrix(I, n, n) - ones(Float64, n, n) ./ n
+
+    K = rbf_dot(X, X, width_x)
+    L = rbf_dot(Y, Y, width_y)
+
+    M = zeros(n, n, dim_x)
+    for i=1:n
+        for j=1:n
+            for q=1:dim_x
+                M[i, j, q] = X[i, q] - X[j, q]
+            end
+        end
+    end
+
+    Lc = (H * L) * H
+
+    G = zeros(n, dim_x)
+    for i=1:n
+        for q=1:dim_x
+            Km = K .* M[:, :, q]
+            Kc = (H * Km) * H
+            test_stat = 2 * sum(Kc' .* Lc) / n / width_x^2
+            G[i, q] = test_stat
+        end
+    end
+
+    G
 end
