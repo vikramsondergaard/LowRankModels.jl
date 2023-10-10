@@ -558,7 +558,7 @@ mutable struct HSICReg<:Regularizer
 end
 HSICReg(s::AbstractArray) = HSICReg(1, s, 0.5)
 evaluate(r::HSICReg, u::AbstractArray) = begin
-    hsic, _ = hsic_gam(u, r.s, α)
+    hsic, _ = hsic_gam(u, r.s, r.α)
     r.scale * hsic
 end
 prox(r::HSICReg, u::AbstractArray, alpha::Number) = u .- alpha .* hsic_grad(u, r.s)
