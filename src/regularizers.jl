@@ -437,8 +437,6 @@ mutable struct OrthogonalReg<:Regularizer
     scale::Float64
     s::AbstractArray
 end
-OrthogonalReg(scale::Float64, s::AbstractArray) = 
-    mean(s) == 0 ? OrthogonalReg(scale, s) : OrthogonalReg(scale, normalise(s))
 OrthogonalReg(s::AbstractArray) = OrthogonalReg(1, normalise(s))
 
 """
@@ -467,6 +465,8 @@ Calculate the vector projection of each column of `X` onto `s`.
 - `X`: The vector(s) that are being projected onto `s`.
 """
 project(s::AbstractArray, X::AbstractArray) = begin
+    println("The shape of s is $(size(s))")
+    println("The shape of X is $(size(X))")
     if length(size(X)) == 1 return dot(X, s) / dot(s, s) * s end # 1 dimension
     return [dot(X[i, :], s) / dot(s, s) * s for i=1:m]           # 2+ dimensions
 end
@@ -548,6 +548,22 @@ prox(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
 end
 prox!(r::OrthogonalReg, u::AbstractArray, alpha::Number) = begin
     u = prox(r, u, alpha)
+    u
+end
+
+mutable struct HSICReg<:Regularizer
+    scale::Float64
+    s::AbstractArray
+    α::Float64
+end
+HSICReg(s::AbstractArray) = HSICReg(1, s, 0.5)
+evaluate(r::HSICReg, u::AbstractArray) = begin
+    hsic, _ = hsic_gam(u, r.s, α)
+    r.scale * hsic
+end
+prox(r::HSICReg, u::AbstractArray, alpha::Number) = u .- alpha .* hsic_grad(u, r.s)
+prox!(r::HSICReg, u::AbstractArray, alpha::Number) = begin
+    u = u .- alpha .* hsic_grad(u, r.s)
     u
 end
 
