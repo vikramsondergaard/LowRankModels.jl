@@ -49,6 +49,30 @@ function allnonneg(a::AbstractArray)
   return true
 end
 
+choose_bins(i::Int64) = 1 + round(3.322 * log(i))
+
+function bin(y::Array{Int64, 1}, bins::Int64)
+    groups = []
+    for i=1:bins             push!(groups, [])   end
+    for i, e in enumerate(y) push!(groups[e], i) end
+    groups
+end
+function bin(y::Array{Float64, 1}, bins::Int64)
+    out_y = []
+    for i=1:bins
+        push!(out_y, [])
+    end
+    bins = Float64(bins)
+    dists = [i / bins for i=1:bins]
+    quantiles = [quantile(y, d) for d in dists]
+    for i, e in enumerate(y)
+        for j, q in enumerate(quantiles)
+            if e > q push!(out_y[j - 1], i) end
+        end
+    end
+    out_y
+end
+
 ## Quadratic regularization
 mutable struct QuadReg<:Regularizer
     scale::Float64
@@ -465,8 +489,6 @@ Calculate the vector projection of each column of `X` onto `s`.
 - `X`: The vector(s) that are being projected onto `s`.
 """
 project(s::AbstractArray, X::AbstractArray) = begin
-    println("The shape of s is $(size(s))")
-    println("The shape of X is $(size(X))")
     if length(size(X)) == 1 return dot(X, s) / dot(s, s) * s end # 1 dimension
     return [dot(X[i, :], s) / dot(s, s) * s for i=1:m]           # 2+ dimensions
 end
@@ -551,20 +573,82 @@ prox!(r::OrthogonalReg, u::AbstractArray, alpha::Number) = begin
     u
 end
 
-mutable struct HSICReg<:Regularizer
+mutable struct IndependenceReg<:Regularizer
     scale::Float64
     s::AbstractArray
     α::Float64
 end
-HSICReg(s::AbstractArray) = HSICReg(1, s, 0.5)
-evaluate(r::HSICReg, u::AbstractArray) = begin
+IndependenceReg(s::AbstractArray) = IndependenceReg(1, s, 0.5)
+evaluate(r::IndependenceReg, u::AbstractArray) = begin
     hsic, _ = hsic_gam(u, r.s, r.α)
     r.scale * hsic
 end
-prox(r::HSICReg, u::AbstractArray, alpha::Number) = u .- alpha .* hsic_grad(u, r.s)
-prox!(r::HSICReg, u::AbstractArray, alpha::Number) = begin
-    u = u .- alpha .* hsic_grad(u, r.s)
+prox(r::IndependenceReg, u::AbstractArray, alpha::Number) = u .- alpha .* hsic_grad(u, r.s)
+prox!(r::IndependenceReg, u::AbstractArray, alpha::Number) = begin
+    u = u .- (alpha .* hsic_grad(u, r.s))
     u
+end
+
+mutable struct SeparationReg<:Regularizer
+    scale::Float64
+    s::AbstractArray
+    y::AbstractArray
+    groups::AbstractArray
+    α::Float64
+end
+SeparationReg(s::AbstractArray, y::Array{Int64, 1}) = SeparationReg(1, s, y, bin(y, max(y)), 0.5)
+SeparationReg(s::AbstractArray, y::Array{Float64, 1}, bins::Int64=choose_bins(size(y, 1))) = SeparationReg(1, s, y, bin(y, bins), 0.5)
+SeparationReg(s::AbstractArray, y::AbstractArray, groups::AbstractArray) = SeparationReg(1, s, y, groups, 0.5)
+evaluate(r::SeparationReg, u::AbstractArray) = sum(evaluate(IndependenceReg(r.scale, r.s[g], r.α), u[g]) for g in r.groups)
+prox(r::SeparationReg, u::AbstractArray, alpha::Float64) = begin
+    grad = zeros(size(u))
+    for g in r.groups
+        u_g = u[g]
+        s_g = r.s[g]
+        subgrad = hsic_grad(u_g, s_g)
+        i = 0
+        for j in g
+            grad[j] += subgrad[i]
+            i += 1
+        end
+    end
+    u .- (alpha .* grad)
+end
+prox!(r::SeparationReg, u::AbstractArray, alpha::Float64) = begin
+    u = prox(r, u, alpha)
+    u
+end
+
+mutable struct SufficiencyReg<:Regularizer
+    scale::Float64
+    s::AbstractArray
+    y::AbstractArray
+    α::Float64
+end
+SufficiencyReg(s::AbstractArray, y::AbstractArray) = SufficiencyReg(1, s, y, 0.5)
+evaluate(r::SufficiencyReg, u::AbstractArray) = begin
+    total_loss = 0.0
+    if length(size(u)) == 1
+        bins = choose_bins(length(u))
+        groups = bin(u, bins)
+        for g in groups
+            s_g = r.s[g]
+            y_g = r.y[g]
+            total_loss += hsic_gam(y_g, s_g, r.α)
+        end
+    else
+        n_rows = size(u, 1)
+        for j=1:size(u, 2)
+            bins = choose_bins(n_rows)
+            groups = bin(u[:, j], bins)
+            for g in groups
+                s_g = r.s[g]
+                y_g = r.y[g]
+                total_loss += hsic_gam(y_g, s_g, r.α)
+            end
+        end
+    end
+    r.scale * total_loss
 end
 
 ## simpler method for numbers, not arrays
