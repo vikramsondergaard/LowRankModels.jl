@@ -5,7 +5,7 @@
 
 import Base: *
 
-export Regularizer, ProductRegularizer, # abstract types
+export Regularizer, ProductRegularizer, ColumnRegularizer, # abstract types
        # concrete regularizers
        QuadReg, QuadConstraint,
        OneReg, ZeroReg, NonNegConstraint, NonNegOneReg, NonNegQuadReg,
@@ -16,7 +16,8 @@ export Regularizer, ProductRegularizer, # abstract types
        fixed_last_latent_features, FixedLastLatentFeaturesConstraint,
        OrdinalReg, MNLOrdinalReg,
        RemQuadReg,
-       OrthogonalReg,
+       OrthogonalReg, SoftOrthogonalReg, # linearly independent regularisers
+       IndependenceReg, SeparationReg, SufficiencyReg, # statistically independent regularisers
        # methods on regularizers
        prox!, prox,
        # utilities
@@ -30,6 +31,7 @@ TOL = 1e-12
 # prox(r)(u,alpha) = argmin_x( alpha r(x) + 1/2 \|x - u\|_2^2)
 abstract type Regularizer end
 abstract type MatrixRegularizer <: LowRankModels.Regularizer end
+abstract type ColumnRegularizer <: Regularizer end
 
 # default inplace prox operator (slower than if inplace prox is implemented)
 prox!(r::Regularizer,u::AbstractArray,alpha::Number) = (v = prox(r,u,alpha); @simd for i=1:length(u) @inbounds u[i]=v[i] end; u)
@@ -54,7 +56,7 @@ choose_bins(i::Int64) = 1 + round(3.322 * log(i))
 function bin(y::Array{Int64, 1}, bins::Int64)
     groups = []
     for i=1:bins             push!(groups, [])   end
-    for i, e in enumerate(y) push!(groups[e], i) end
+    for (i, e) in enumerate(y) push!(groups[e], i) end
     groups
 end
 function bin(y::Array{Float64, 1}, bins::Int64)
@@ -65,8 +67,8 @@ function bin(y::Array{Float64, 1}, bins::Int64)
     bins = Float64(bins)
     dists = [i / bins for i=1:bins]
     quantiles = [quantile(y, d) for d in dists]
-    for i, e in enumerate(y)
-        for j, q in enumerate(quantiles)
+    for (i, e) in enumerate(y)
+        for (j, q) in enumerate(quantiles)
             if e > q push!(out_y[j - 1], i) end
         end
     end
@@ -457,7 +459,7 @@ of the data.
 - `s`:     The protected characteristic which each column of X needs to be
            orthogonal to (after standardising the mean).
 """
-mutable struct OrthogonalReg<:Regularizer
+mutable struct OrthogonalReg<:ColumnRegularizer
     scale::Float64
     s::AbstractArray
 end
@@ -552,12 +554,10 @@ prox!(r::OrthogonalReg, u::AbstractArray, alpha::Number) = begin
     u
 end
 
-mutable struct SoftOrthogonalReg<:Regularizer
+mutable struct SoftOrthogonalReg<:ColumnRegularizer
     scale::Float64
     s::AbstractArray
 end
-SoftOrthogonalReg(scale::Float64, s::AbstractArray) =
-    mean(s) == 0 ? SoftOrthogonalReg(scale, s) : SoftOrthogonalReg(scale, normalise(s))
 SoftOrthogonalReg(s::AbstractArray) = SoftOrthogonalReg(1, s)
 evaluate(r::SoftOrthogonalReg, u::AbstractArray) = r.scale * dot(u, r.s)^2
 prox(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
@@ -573,7 +573,7 @@ prox!(r::OrthogonalReg, u::AbstractArray, alpha::Number) = begin
     u
 end
 
-mutable struct IndependenceReg<:Regularizer
+mutable struct IndependenceReg<:ColumnRegularizer
     scale::Float64
     s::AbstractArray
     α::Float64
@@ -589,7 +589,7 @@ prox!(r::IndependenceReg, u::AbstractArray, alpha::Number) = begin
     u
 end
 
-mutable struct SeparationReg<:Regularizer
+mutable struct SeparationReg<:ColumnRegularizer
     scale::Float64
     s::AbstractArray
     y::AbstractArray
@@ -619,7 +619,7 @@ prox!(r::SeparationReg, u::AbstractArray, alpha::Float64) = begin
     u
 end
 
-mutable struct SufficiencyReg<:Regularizer
+mutable struct SufficiencyReg<:ColumnRegularizer
     scale::Float64
     s::AbstractArray
     y::AbstractArray
