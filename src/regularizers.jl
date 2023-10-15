@@ -650,6 +650,49 @@ evaluate(r::SufficiencyReg, u::AbstractArray) = begin
     end
     r.scale * total_loss
 end
+prox(r::SufficiencyReg, u::AbstractArray, alpha::Float64) = begin
+    u_prime = copy(u)
+    if length(size(u)) == 1
+        bins = choose_bins(length(u))
+        d = (max(u) - min(u)) / bins
+        for i=1:length(u)
+            min_hsic = evaluate(r, u)
+            for d_prime in [d, -d]
+                u[i] = u[i] - d_prime
+                hsic = evaluate(r, u)
+                if hsic < min_hsic
+                    min_hsic = hsic
+                    u_prime[i] = u[i] + (1 - alpha) * d_prime
+                end
+                u[i] = u_i + d_prime
+            end
+        end
+    else
+        n_rows, n_cols = size(u)
+        bins = choose_bins(n_rows)
+        for j=1:n_cols
+            u_j = u[:, j]
+            d = (max(u_j) - min(u_j)) / bins
+            for i=1:n_rows
+                min_hsic = evaluate(r, u_j)
+                for d_prime in [d, -d]
+                    u_j[i] = u_j[i] - d_prime
+                    hsic = evaluate(r, u_j)
+                    if hsic < min_hsic
+                        min_hsic = hsic
+                        u_prime[i, j] = u_j[i] + (1 - alpha) * d_prime
+                    end
+                    u_j[i] = u_j[i] + d_prime
+                end
+            end
+        end
+    end
+    u_prime
+end
+prox!(r::SufficiencyReg, u::AbstractArray, alpha::Float64) = begin
+    u = prox(r, u, alpha)
+    u
+end
 
 ## simpler method for numbers, not arrays
 evaluate(r::Regularizer, u::Number) = evaluate(r, [u])
