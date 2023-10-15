@@ -348,17 +348,17 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
                 ## gradient step: Xᵢ += -(α/l) * ∇{Xᵢ}L
                 axpy!(-stepsize,g,newve[e])
                 ## prox step: Xᵢ = prox_rx(Xᵢ, α/l)
-                if !isa(rx[e], OrthogonalReg)
+                if !isa(rx[e], ColumnRegularizer)
                     prox!(rx[e],newve[e],stepsize)
                 end
                 copyto!(ve[e], newve[e])
             end # for e=1:m
-            if isa(rx[1], OrthogonalReg)
-                println("Performing prox() for iteration $i")
+            if isa(rx[1], ColumnRegularizer)
+                # println("Performing prox() for iteration $i")
                 for e=1:k prox!(rx[1], newvk[e], stepsize) end
             end
-            println("The new X is")
-            display(X)
+            # println("The new X is")
+            # display(X)
             gemm!('T','N',1.0,X,Y,0.0,XY) # Recalculate XY using the new X
         end # inner iteration
         # STEP 2: Y update
@@ -388,12 +388,12 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
                 ## gradient step: Yⱼ += -(α/l) * ∇{Yⱼ}L
                 axpy!(-stepsize,gf[f],newvf[f])
                 ## prox step: Yⱼ = prox_ryⱼ(Yⱼ, α/l)
-                if !isa(ry[f], OrthogonalReg)
+                if !isa(ry[f], ColumnRegularizer)
                     prox!(ry[f],newvf[f],stepsize)
                 end
                 copyto!(vf[f], newvf[f])
             end # for f=1:n
-            if isa(ry[1], OrthogonalReg)
+            if isa(ry[1], ColumnRegularizer)
                 prox!(ry[1], newvf, stepsize)
             end
             gemm!('T','N',1.0,X,Y,0.0,XY) # Recalculate XY using the new Y
