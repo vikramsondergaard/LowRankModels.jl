@@ -42,9 +42,9 @@ function rbf_dot(pattern1::AbstractArray, pattern2::AbstractArray, deg::Float64)
     Q = repeat(G, outer=[1, size2])
     R = repeat(H', outer=[size1, 1])
 
-    H = Q .+ R .- (2 * dot(pattern1, pattern2'))
+    H = Q .+ R .- (2 .* (pattern1 * pattern2'))
 
-    H = exp(-H ./ (2 * deg^2))
+    H = map(exp, -H ./ (2 * deg^2))
 
     H
 end
@@ -57,7 +57,7 @@ function get_width(M::AbstractArray)
     R = repeat(G', outer=[n, 1])
 
     dists = Q .+ R .- (2 .* (M * M'))
-    dists = dists .- tril(dists)
+    dists .-= tril(dists)
     dists = reshape(dists, (n^2, 1))
 
     sqrt(0.5 * median(filter(d -> d > 0, dists)))
@@ -80,28 +80,42 @@ function hsic_gam(X::AbstractArray, Y::AbstractArray, alph::Float64=0.5)
 
     test_stat = sum(Kc' .* Lc) / n
 
-    var_HSIC = (Kc .* Lc ./ 6) .^ 2
-    var_HSIC = (sum(var_HSIC) - trace(var_HSIC)) / n / (n - 1)
-    var_HSIC = var_HSIC * 72 * (n - 4) * (n - 5) / n / (n - 1) / (n - 2) / (n - 3)
+    # var_HSIC = (Kc .* Lc ./ 6) .^ 2
+    # var_HSIC = (sum(var_HSIC) - tr(var_HSIC)) / n / (n - 1)
+    # var_HSIC = var_HSIC * 72 * (n - 4) * (n - 5) / n / (n - 1) / (n - 2) / (n - 3)
 
-    K = K .- Diagonal(K)
-    L = L .- Diagonal(L)
+    # K = K .- Diagonal(K)
+    # L = L .- Diagonal(L)
 
-    mu_x = ((bone' * K) * bone) / n / (n - 1)
-    mu_y = ((bone' * L) * bone) / n / (n - 1)
+    # mu_x = ((bone' * K) * bone) / n / (n - 1)
+    # mu_y = ((bone' * L) * bone) / n / (n - 1)
 
-    m_HSIC = (1 + mu_x * mu_y - mu_x - mu_y) / n
+    # m_HSIC = (1 .+ mu_x .* mu_y .- mu_x .- mu_y) ./ n
 
-    al = m_HSIC^2 / var_HSIC
-    bet = var_HSIC * n / m_HSIC
+    # al = m_HSIC^2 / var_HSIC
+    # bet = var_HSIC * n ./ m_HSIC
 
-    thresh = quantile(Gamma(al, bet), 1 - alph)
+    # println("Size of al is $(size(al))")
+    # println("al is $(al[1])")
+    # println("Size of bet is $(size(bet))")
+    # println("bet is $(bet[1])")
 
-    test_stat, thresh
+    # if size(al) == (1, 1) && size(bet) == (1, 1)
+    #     thresh = quantile(Gamma(al[1], bet[1]), 1 - alph)
+    # else
+    #     thresh = quantile(Gamma(al, bet), 1 - alph)
+    # end
+
+    test_stat
 end
 
 function hsic_grad(X::AbstractArray, Y::AbstractArray)
-    n, dim_x = size(X)
+    if length(size(X)) == 1
+        n = 1
+        dim_x = length(X)
+    else
+        n, dim_x = size(X)
+    end
     width_x = get_width(X)
     width_y = get_width(Y)
     
