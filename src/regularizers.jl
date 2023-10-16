@@ -568,7 +568,7 @@ prox(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
     else                           return broadcast(+, orthog_u, mean_u)
     end
 end
-prox!(r::OrthogonalReg, u::AbstractArray, alpha::Number) = begin
+prox!(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
     u = prox(r, u, alpha)
     u
 end
@@ -579,13 +579,14 @@ mutable struct IndependenceReg<:ColumnRegularizer
     α::Float64
 end
 IndependenceReg(s::AbstractArray) = IndependenceReg(1, s, 0.5)
+IndependenceReg(scale::Float64, s::AbstractArray) = IndependenceReg(scale, s, 0.5)
 evaluate(r::IndependenceReg, u::AbstractArray) = begin
-    hsic, _ = hsic_gam(u, r.s, r.α)
+    hsic = hsic_gam(u, reshape(r.s, (length(r.s), 1)), r.α)
     r.scale * hsic
 end
 prox(r::IndependenceReg, u::AbstractArray, alpha::Number) = u .- alpha .* hsic_grad(u, r.s)
 prox!(r::IndependenceReg, u::AbstractArray, alpha::Number) = begin
-    u = u .- (alpha .* hsic_grad(u, r.s))
+    u = u .- (alpha .* hsic_grad(u, reshape(r.s, (length(r.s), 1))))
     u
 end
 
