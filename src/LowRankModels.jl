@@ -10,7 +10,7 @@ using Random
 using Statistics
 using DataFrames
 
-import LinearAlgebra: dot, norm, Diagonal, rmul!, mul!
+import LinearAlgebra: dot, norm, Diagonal, rmul!, mul!, tr
 import Base: show
 import StatsBase: fit!, mode, mean, var, std
 
