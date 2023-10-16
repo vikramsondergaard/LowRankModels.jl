@@ -355,7 +355,7 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
             end # for e=1:m
             if isa(rx[1], ColumnRegularizer)
                 # println("Performing prox() for iteration $i")
-                for e=1:k prox!(rx[1], newvk[e], stepsize) end
+                for e=1:k prox!(rx[1], reshape(newvk[e], (m, 1)), stepsize) end
             end
             # println("The new X is")
             # display(X)
