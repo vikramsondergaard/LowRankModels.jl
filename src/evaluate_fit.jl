@@ -153,7 +153,7 @@ function calc_penalty(glrm::AbstractGLRM, X::Array{Float64,2}, Y::Array{Float64,
     @assert(size(Y)==(glrm.k,yidxs[end][end]))
     @assert(size(X)==(glrm.k,m))
     penalty = 0.0
-    if isa(glrm.rx[1], ColumnRegularizer) return sum(evaluate(glrm.rx[1], reshape(X[i, :], (length(X[i, :]), 1))) for i=1:size(X, 1)) end
+    if isa(glrm.rx[1], ColumnRegularizer) return sum(evaluate(glrm.rx[1], X[i, :]) for i=1:size(X, 1)) end
     for i=1:m
         penalty += evaluate(glrm.rx[i], view(X,:,i))
     end
