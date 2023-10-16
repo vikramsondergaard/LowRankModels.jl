@@ -43,7 +43,13 @@ A₄_ord = [2 3
           2 5
           1 1]
 
-function test(A::AbstractArray, losses::Array{Loss, 1}, s::Int64, k::Int64, y::Int64)
+function encode_to_one_hot(M::Array{Int64, 1}, categories::Int64=max(M))
+    out = zeros(length(M), categories)
+    for (i, m) in enumerate(M) out[i, m] = 1 end
+    out
+end
+
+function test(A::AbstractArray, losses::Array{Loss, 1}, s::Int64, k::Int64, y::Int64, is_categorical::Bool=false)
     m, n = size(A)
     X_init = randn(k, m)
     Y_init = randn(k, embedding_dim(losses))
@@ -54,7 +60,8 @@ function test(A::AbstractArray, losses::Array{Loss, 1}, s::Int64, k::Int64, y::I
     for scale in scales
         println("Fitting separated fair GLRM with scale=$scale")
         
-        fglrm = FairGLRM(A, losses, SeparationReg(scale, A[:, s], A[:, y]), ZeroReg(), k, s,
+        separator = is_categorical ? encode_to_one_hot(A[:, y]) : A[:, y]
+        fglrm = FairGLRM(A, losses, SeparationReg(scale, A[:, s], separator), ZeroReg(), k, s,
             WeightedLogSumExponentialLoss(10^(-6), weights),
             X=deepcopy(X_init), Y=deepcopy(Y_init), Z=groups)
         
@@ -114,3 +121,6 @@ function test_large()
 end
 
 test_small()
+println()
+test_medium()
+println()
