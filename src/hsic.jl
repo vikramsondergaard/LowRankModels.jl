@@ -110,12 +110,7 @@ function hsic_gam(X::AbstractArray, Y::AbstractArray, alph::Float64=0.5)
 end
 
 function hsic_grad(X::AbstractArray, Y::AbstractArray)
-    if length(size(X)) == 1
-        n = 1
-        dim_x = length(X)
-    else
-        n, dim_x = size(X)
-    end
+    n, dim_x = size(X)
     width_x = get_width(X)
     width_y = get_width(Y)
     
