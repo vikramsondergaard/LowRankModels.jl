@@ -54,7 +54,7 @@ function test(A::AbstractArray, losses::Array{Loss, 1}, s::Int64, k::Int64)
     for scale in scales
         println("Fitting independent fair GLRM with scale=$scale")
         
-        fglrm = FairGLRM(A, losses, IndependenceReg(scale, A[:, s]'), ZeroReg(), k, s,
+        fglrm = FairGLRM(A, losses, IndependenceReg(scale, A[:, s]), ZeroReg(), k, s,
             WeightedLogSumExponentialLoss(10^(-6), weights),
             X=deepcopy(X_init), Y=deepcopy(Y_init), Z=groups)
         
