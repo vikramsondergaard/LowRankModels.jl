@@ -51,11 +51,12 @@ function allnonneg(a::AbstractArray)
   return true
 end
 
-choose_bins(i::Int64) = 1 + round(3.322 * log(i))
+choose_bins(i::Int64) = min(i, Int(1 + round(3.322 * log(i))))
 
+bin(y::AbstractArray) = eltype(y) == Int64 ? bin(convert(Array{Int64}, y), Int(max(y))) : bin(convert(Array{Float64}, y), choose_bins(length(y)))
 function bin(y::Array{Int64, 1}, bins::Int64)
     groups = []
-    for i=1:bins             push!(groups, [])   end
+    for i=1:bins               push!(groups, [])   end
     for (i, e) in enumerate(y) push!(groups[e], i) end
     groups
 end
@@ -68,8 +69,9 @@ function bin(y::Array{Float64, 1}, bins::Int64)
     dists = [i / bins for i=1:bins]
     quantiles = [quantile(y, d) for d in dists]
     for (i, e) in enumerate(y)
+        # assigned = false
         for (j, q) in enumerate(quantiles)
-            if e > q push!(out_y[j - 1], i) end
+            if e <= q push!(out_y[j], i); break end
         end
     end
     out_y
@@ -581,12 +583,14 @@ end
 IndependenceReg(s::AbstractArray) = IndependenceReg(1, s, 0.5)
 IndependenceReg(scale::Float64, s::AbstractArray) = IndependenceReg(scale, s, 0.5)
 evaluate(r::IndependenceReg, u::AbstractArray) = begin
-    hsic = hsic_gam(u, reshape(r.s, (length(r.s), 1)), r.α)
+    n = length(u)
+    hsic = hsic_gam(reshape(u, (n, 1)), reshape(r.s, (n, 1)), r.α)
     r.scale * hsic
 end
 prox(r::IndependenceReg, u::AbstractArray, alpha::Number) = u .- alpha .* hsic_grad(u, r.s)
 prox!(r::IndependenceReg, u::AbstractArray, alpha::Number) = begin
-    u = u .- (alpha .* hsic_grad(u, reshape(r.s, (length(r.s), 1))))
+    n = length(u)
+    u = u .- (alpha .* hsic_grad(reshape(u, (n, 1)), reshape(r.s, (n, 1))))
     u
 end
 
@@ -597,17 +601,26 @@ mutable struct SeparationReg<:ColumnRegularizer
     groups::AbstractArray
     α::Float64
 end
-SeparationReg(s::AbstractArray, y::Array{Int64, 1}) = SeparationReg(1, s, y, bin(y, max(y)), 0.5)
-SeparationReg(s::AbstractArray, y::Array{Float64, 1}, bins::Int64=choose_bins(size(y, 1))) = SeparationReg(1, s, y, bin(y, bins), 0.5)
+SeparationReg(s::AbstractArray, y::AbstractArray) = SeparationReg(1, s, y, bin(y), 0.5)
+SeparationReg(scale::Float64, s::AbstractArray, y::AbstractArray) = SeparationReg(scale, s, y, bin(y), 0.5)
 SeparationReg(s::AbstractArray, y::AbstractArray, groups::AbstractArray) = SeparationReg(1, s, y, groups, 0.5)
-evaluate(r::SeparationReg, u::AbstractArray) = sum(evaluate(IndependenceReg(r.scale, r.s[g], r.α), u[g]) for g in r.groups)
+evaluate(r::SeparationReg, u::AbstractArray) = begin
+    filtered_groups = filter(group -> length(group) > 0, r.groups)
+    total_loss = 0.0
+    for g in filtered_groups
+        ind_reg = IndependenceReg(r.scale, r.s[g], r.α)
+        u_g = u[g]
+        total_loss += evaluate(ind_reg, reshape(u_g, (length(u_g), 1)))
+    end
+    total_loss
+end
 prox(r::SeparationReg, u::AbstractArray, alpha::Float64) = begin
     grad = zeros(size(u))
     for g in r.groups
         u_g = u[g]
         s_g = r.s[g]
-        subgrad = hsic_grad(u_g, s_g)
-        i = 0
+        subgrad = hsic_grad(u_g, reshape(s_g, (length(s_g), 1)))
+        i = 1
         for j in g
             grad[j] += subgrad[i]
             i += 1
