@@ -82,30 +82,6 @@ function bin(y::AbstractArray)
     filter(g -> length(g) > 0, groups)
 end
 
-# bin(y::AbstractArray) = eltype(y) == Int64 ? bin(convert(Array{Int64}, y), Int(max(y))) : bin(convert(Array{Float64}, y), choose_bins(length(y)))
-# function bin(y::Array{Int64, 1}, bins::Int64)
-#     groups = []
-#     for i=1:bins               push!(groups, [])   end
-#     for (i, e) in enumerate(y) push!(groups[e], i) end
-#     groups
-# end
-# function bin(y::Array{Float64, 1}, bins::Int64)
-#     out_y = []
-#     for i=1:bins
-#         push!(out_y, [])
-#     end
-#     bins = Float64(bins)
-#     dists = [i / bins for i=1:bins]
-#     quantiles = [quantile(y, d) for d in dists]
-#     for (i, e) in enumerate(y)
-#         # assigned = false
-#         for (j, q) in enumerate(quantiles)
-#             if e <= q push!(out_y[j], i); break end
-#         end
-#     end
-#     out_y
-# end
-
 ## Quadratic regularization
 mutable struct QuadReg<:Regularizer
     scale::Float64
