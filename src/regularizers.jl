@@ -53,29 +53,58 @@ end
 
 choose_bins(i::Int64) = min(i, Int(1 + round(3.322 * log(i))))
 
-bin(y::AbstractArray) = eltype(y) == Int64 ? bin(convert(Array{Int64}, y), Int(max(y))) : bin(convert(Array{Float64}, y), choose_bins(length(y)))
-function bin(y::Array{Int64, 1}, bins::Int64)
-    groups = []
-    for i=1:bins               push!(groups, [])   end
-    for (i, e) in enumerate(y) push!(groups[e], i) end
-    groups
-end
-function bin(y::Array{Float64, 1}, bins::Int64)
-    out_y = []
-    for i=1:bins
-        push!(out_y, [])
-    end
-    bins = Float64(bins)
-    dists = [i / bins for i=1:bins]
-    quantiles = [quantile(y, d) for d in dists]
-    for (i, e) in enumerate(y)
-        # assigned = false
-        for (j, q) in enumerate(quantiles)
-            if e <= q push!(out_y[j], i); break end
+function bin(y::AbstractArray)
+    if length(size(y)) > 1 # categorical y (one-hot encoded)
+        m, n = size(y)
+        bins = n
+        groups = []
+        for i=1:bins push!(groups, []) end
+        for i=1:m
+            for j=1:n
+                if y[i, j] == 1 push!(groups[j], i) end
+            end
+        end
+    else                   # real/ordinal y
+        m = length(y)
+        bins = choose_bins(m)
+        groups = []
+        for i=1:bins push!(groups, []) end
+        bins = Float64(bins)
+        dists = [i / bins for i=1:bins]
+        quantiles = [quantile(y, d) for d in dists]
+        for (i, e) in enumerate(y)
+            # assigned = false
+            for (j, q) in enumerate(quantiles)
+                if e <= q push!(groups[j], i); break end
+            end
         end
     end
-    out_y
+    filter(g -> length(g) > 0, groups)
 end
+
+# bin(y::AbstractArray) = eltype(y) == Int64 ? bin(convert(Array{Int64}, y), Int(max(y))) : bin(convert(Array{Float64}, y), choose_bins(length(y)))
+# function bin(y::Array{Int64, 1}, bins::Int64)
+#     groups = []
+#     for i=1:bins               push!(groups, [])   end
+#     for (i, e) in enumerate(y) push!(groups[e], i) end
+#     groups
+# end
+# function bin(y::Array{Float64, 1}, bins::Int64)
+#     out_y = []
+#     for i=1:bins
+#         push!(out_y, [])
+#     end
+#     bins = Float64(bins)
+#     dists = [i / bins for i=1:bins]
+#     quantiles = [quantile(y, d) for d in dists]
+#     for (i, e) in enumerate(y)
+#         # assigned = false
+#         for (j, q) in enumerate(quantiles)
+#             if e <= q push!(out_y[j], i); break end
+#         end
+#     end
+#     out_y
+# end
 
 ## Quadratic regularization
 mutable struct QuadReg<:Regularizer
@@ -605,9 +634,8 @@ SeparationReg(s::AbstractArray, y::AbstractArray) = SeparationReg(1, s, y, bin(y
 SeparationReg(scale::Float64, s::AbstractArray, y::AbstractArray) = SeparationReg(scale, s, y, bin(y), 0.5)
 SeparationReg(s::AbstractArray, y::AbstractArray, groups::AbstractArray) = SeparationReg(1, s, y, groups, 0.5)
 evaluate(r::SeparationReg, u::AbstractArray) = begin
-    filtered_groups = filter(group -> length(group) > 0, r.groups)
     total_loss = 0.0
-    for g in filtered_groups
+    for g in r.groups
         ind_reg = IndependenceReg(r.scale, r.s[g], r.α)
         u_g = u[g]
         total_loss += evaluate(ind_reg, reshape(u_g, (length(u_g), 1)))
@@ -619,7 +647,8 @@ prox(r::SeparationReg, u::AbstractArray, alpha::Float64) = begin
     for g in r.groups
         u_g = u[g]
         s_g = r.s[g]
-        subgrad = hsic_grad(u_g, reshape(s_g, (length(s_g), 1)))
+        n = length(u_g)
+        subgrad = hsic_grad(reshape(u_g, (n, 1)), reshape(s_g, (n, 1)))
         i = 1
         for j in g
             grad[j] += subgrad[i]
