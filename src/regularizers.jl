@@ -592,10 +592,10 @@ evaluate(r::IndependenceReg, u::AbstractArray) = begin
     hsic = hsic_gam(reshape(u, (n, 1)), reshape(r.s, (n, 1)), r.α)
     r.scale * hsic
 end
-prox(r::IndependenceReg, u::AbstractArray, alpha::Number) = u .- alpha .* hsic_grad(u, r.s)
+prox(r::IndependenceReg, u::AbstractArray, alpha::Number) = u .- r.scale .* alpha .* hsic_grad(u, r.s)
 prox!(r::IndependenceReg, u::AbstractArray, alpha::Number) = begin
     n = length(u)
-    u = u .- (alpha .* hsic_grad(reshape(u, (n, 1)), reshape(r.s, (n, 1))))
+    u = u .- ((alpha * r.scale) .* hsic_grad(reshape(u, (n, 1)), reshape(r.s, (n, 1))))
     u
 end
 
@@ -631,7 +631,7 @@ prox(r::SeparationReg, u::AbstractArray, alpha::Float64) = begin
             i += 1
         end
     end
-    u .- (alpha .* grad)
+    u .- ((alpha * r.scale) .* grad)
 end
 prox!(r::SeparationReg, u::AbstractArray, alpha::Float64) = begin
     u = prox(r, u, alpha)
@@ -681,7 +681,7 @@ prox(r::SufficiencyReg, u::AbstractArray, alpha::Float64) = begin
                 hsic = evaluate(r, u)
                 if hsic < min_hsic
                     min_hsic = hsic
-                    u_prime[i] = u[i] + (1 - alpha) * d_prime
+                    u_prime[i] = u[i] + (1 - alpha) * r.scale * d_prime
                 end
                 u[i] = u_i + d_prime
             end
@@ -699,7 +699,7 @@ prox(r::SufficiencyReg, u::AbstractArray, alpha::Float64) = begin
                     hsic = evaluate(r, u_j)
                     if hsic < min_hsic
                         min_hsic = hsic
-                        u_prime[i, j] = u_j[i] + (1 - alpha) * d_prime
+                        u_prime[i, j] = u_j[i] + (1 - alpha) * r.scale * d_prime
                     end
                     u_j[i] = u_j[i] + d_prime
                 end
