@@ -1,4 +1,6 @@
-using LowRankModels, Statistics
+using LowRankModels, Statistics, Random
+
+Random.seed!(1)
 
 scales = [10^(-6), 10^(-5), 3 * 10^(-3), 10^(-2), 10^(-1), 5 * 10^(-1), 1, 5,
           10, 20, 60, 10^2, 10^3, 10^4, 10^5]
@@ -78,6 +80,13 @@ function test_small()
 
     test(A₂, losses₂, s, k)
 
+    p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
+    glrm = GLRM(A₂, losses₂, ZeroReg(), ZeroReg(), k)
+    glrmX, glrmY, ch = fit!(glrm, params=p, verbose=false)
+    println("successfully fit vanilla GLRM")
+    total_orthog = sum(evaluate(IndependenceReg(1.0, A₂[:, s]), glrmX[i, :]) for i=1:k)
+    println("Independence penalty (without scaling) is $total_orthog")
+
     println("Passed test_small()!")
 end
 
@@ -91,6 +100,13 @@ function test_medium()
     s = 2
     
     test(A₃, losses₃, s, k)
+
+    p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
+    glrm = GLRM(A₃, losses₃, ZeroReg(), ZeroReg(), k)
+    glrmX, glrmY, ch = fit!(glrm, params=p, verbose=false)
+    println("successfully fit vanilla GLRM")
+    total_orthog = sum(evaluate(IndependenceReg(1.0, A₃[:, s]), glrmX[i, :]) for i=1:k)
+    println("Independence penalty (without scaling) is $total_orthog")
 
     println("Passed test_medium()!")
 end
@@ -106,6 +122,13 @@ function test_large()
     s = 3
 
     test(A₄, losses₄, s, k)
+
+    p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
+    glrm = GLRM(A₄, losses₄, ZeroReg(), ZeroReg(), k)
+    glrmX, glrmY, ch = fit!(glrm, params=p, verbose=false)
+    println("successfully fit vanilla GLRM")
+    total_orthog = sum(evaluate(IndependenceReg(1.0, A₄[:, s]), glrmX[i, :]) for i=1:k)
+    println("Independence penalty (without scaling) is $total_orthog")
 
     println("Passed test_large()!")
 end
