@@ -44,13 +44,13 @@ A₄_ord = [2 3
           2 5
           1 1]
 
-function encode_to_one_hot(M::Array{Int64, 1}, categories::Int64=max(M))
+function encode_to_one_hot(M::AbstractArray, categories::Int64=maximum(M))
     out = zeros(length(M), categories)
     for (i, m) in enumerate(M) out[i, m] = 1 end
     out
 end
 
-function test(A::AbstractArray, losses::Array{Loss, 1}, s::Int64, k::Int64, y::Int64, is_categorical::Bool=false)
+function test(A::AbstractArray, losses::Array{Loss, 1}, s::Int64, k::Int64, y::Int64; is_categorical::Bool=false)
     m, n = size(A)
     X_init = randn(k, m)
     Y_init = randn(k, embedding_dim(losses))
@@ -128,8 +128,8 @@ function test_large()
     println("Passed test_large()!")
 end
 
-# test_small()
-# println()
-# test_medium()
-# println()
+test_small()
+println()
+test_medium()
+println()
 test_large()
