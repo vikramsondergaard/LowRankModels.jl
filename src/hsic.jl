@@ -59,8 +59,13 @@ function get_width(M::AbstractArray)
     dists = Q .+ R .- (2 .* (M * M'))
     dists .-= tril(dists)
     dists = reshape(dists, (n^2, 1))
+    filt_dists = filter(d -> d > 0, dists)
 
-    sqrt(0.5 * median(filter(d -> d > 0, dists)))
+    if isempty(filt_dists) 
+        return 0 
+    else 
+        return sqrt(0.5 * median(filt_dists)) 
+    end
 end
 
 function hsic_gam(X::AbstractArray, Y::AbstractArray, alph::Float64=0.5)
@@ -68,6 +73,7 @@ function hsic_gam(X::AbstractArray, Y::AbstractArray, alph::Float64=0.5)
     if n == 1 return 0 end
     width_x = get_width(X)
     width_y = get_width(Y)
+    if width_x == 0 || width_y == 0 return 0 end
 
     bone = ones(Float64, n, 1)
     
@@ -116,6 +122,7 @@ function hsic_grad(X::AbstractArray, Y::AbstractArray)
     dim_x = size(X, 2)
     width_x = get_width(X)
     width_y = get_width(Y)
+    if width_x == 0 || width_y == 0 return zeros(n) end
     
     H = Matrix(I, n, n) - ones(Float64, n, n) ./ n
 
