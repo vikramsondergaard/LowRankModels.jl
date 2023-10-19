@@ -100,7 +100,7 @@ function test_medium()
     s = 2
     y = 1
     
-    test(A₃, losses₃, s, k, y)
+    test(A₃, losses₃, s, k, y, is_categorical=true)
 
     println("Passed test_medium()!")
 end
