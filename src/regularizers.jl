@@ -644,26 +644,28 @@ mutable struct SufficiencyReg<:ColumnRegularizer
     y::AbstractArray
     α::Float64
 end
-SufficiencyReg(s::AbstractArray, y::AbstractArray) = SufficiencyReg(1, s, y, 0.5)
+SufficiencyReg(s::AbstractArray, y::AbstractArray) = SufficiencyReg(1.0, s, y, 0.5)
+SufficiencyReg(scale::Float64, s::AbstractArray, y::AbstractArray) = SufficiencyReg(scale, s, y, 0.5)
 evaluate(r::SufficiencyReg, u::AbstractArray) = begin
     total_loss = 0.0
     if length(size(u)) == 1
-        bins = choose_bins(length(u))
-        groups = bin(u, bins)
+        groups = bin(u)
+        filter!(g -> length(g) > 1, groups)
         for g in groups
+            n = length(g)
             s_g = r.s[g]
             y_g = r.y[g]
-            total_loss += hsic_gam(y_g, s_g, r.α)
+            total_loss += hsic_gam(reshape(y_g, (n, 1)), reshape(s_g, (n, 1)), r.α)
         end
     else
-        n_rows = size(u, 1)
         for j=1:size(u, 2)
-            bins = choose_bins(n_rows)
-            groups = bin(u[:, j], bins)
+            groups = bin(u[:, j])
+            filter!(g -> length(g) > 1, groups)
             for g in groups
+                n = length(g)
                 s_g = r.s[g]
                 y_g = r.y[g]
-                total_loss += hsic_gam(y_g, s_g, r.α)
+                total_loss += hsic_gam(reshape(y_g, (n, 1)), reshape(s_g, (n, 1)), r.α)
             end
         end
     end
@@ -673,7 +675,7 @@ prox(r::SufficiencyReg, u::AbstractArray, alpha::Float64) = begin
     u_prime = copy(u)
     if length(size(u)) == 1
         bins = choose_bins(length(u))
-        d = (max(u) - min(u)) / bins
+        d = (maximum(u) - minimum(u)) / bins
         for i=1:length(u)
             min_hsic = evaluate(r, u)
             for d_prime in [d, -d]
@@ -683,7 +685,7 @@ prox(r::SufficiencyReg, u::AbstractArray, alpha::Float64) = begin
                     min_hsic = hsic
                     u_prime[i] = u[i] + (1 - alpha) * r.scale * d_prime
                 end
-                u[i] = u_i + d_prime
+                u[i] = u[i] + d_prime
             end
         end
     else
