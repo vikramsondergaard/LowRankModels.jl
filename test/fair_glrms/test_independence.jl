@@ -1,4 +1,4 @@
-using LowRankModels, Statistics, Random
+using LowRankModels, Statistics, Random, CSV, DataFrames
 
 Random.seed!(1)
 
@@ -133,8 +133,49 @@ function test_large()
     println("Passed test_large()!")
 end
 
-test_small()
-println()
-test_medium()
-println()
-test_large()
+function test_adult()
+    # Path to the Adult dataset
+    # datapath = "/Users/vikramsondergaard/honours/data/adult/adult_trimmed.data"
+    datapath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/adult/adult_trimmed.data"
+    # Read the CSV file and convert it to a matrix
+    adult_csv = CSV.read(datapath, DataFrame, header=1)
+    A = convert(Matrix, adult_csv)
+    # Gender is the 10th column in the Adult data set
+    s = 3
+    k = 3
+
+    real_losses = [QuadLoss(), QuadLoss()]
+
+    bool_losses = [HingeLoss(), HingeLoss()]
+
+    n_workclasses = 9
+    n_relationships = 6
+    n_races = 5 # (from the data - there are not five races)
+    n_educations = 16
+    cat_losses = [OvALoss(n_workclasses, bin_loss=HingeLoss()),
+                OvALoss(n_relationships, bin_loss=HingeLoss()),
+                OvALoss(n_races, bin_loss=HingeLoss())]
+
+    ord_losses = [OrdinalHingeLoss(n_educations)]
+
+    losses = [real_losses..., bool_losses..., cat_losses..., ord_losses...]
+
+    test(A, losses, s, k)
+
+    p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
+    glrm = GLRM(A, losses, ZeroReg(), ZeroReg(), k)
+    glrmX, glrmY, ch = fit!(glrm, params=p, verbose=false)
+    println("successfully fit vanilla GLRM")
+    total_orthog = sum(evaluate(IndependenceReg(1.0, A₄[:, s]), glrmX[i, :]) for i=1:k)
+    println("Independence penalty (without scaling) is $total_orthog")
+
+    println("Passed test_large()!")
+end
+
+# test_small()
+# println()
+# test_medium()
+# println()
+# test_large()
+
+test_adult()
