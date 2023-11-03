@@ -65,7 +65,11 @@ function row_objective(fglrm::FairGLRM, i::Int, x::AbstractArray, Y::Array{Float
                        include_regularization=true)
     XY = x'*Y
     # Use the provided group functional to evaluate the total loss
-    err = evaluate(fglrm.group_functional, fglrm.losses, XY[1, yidxs], fglrm.A[i, :], [Set(1)], fglrm.observed_features[i], yidxs=yidxs)
+    xy = []
+    for yidx in yidxs
+        push!(xy, XY[yidx])
+    end
+    err = evaluate(fglrm.group_functional, fglrm.losses, xy, fglrm.A[i, :], [Set(1)], fglrm.observed_features[i], yidxs=yidxs)
     # add regularization penalty
     if include_regularization
         err += evaluate(fglrm.rx[i], x)
