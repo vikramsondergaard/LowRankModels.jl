@@ -1,4 +1,4 @@
-using LowRankModels, Statistics, Random, CSV, DataFrames
+using LowRankModels, Statistics, Random, CSV, DataFrames, Tables
 
 Random.seed!(1)
 
@@ -45,7 +45,8 @@ A₄_ord = [2 3
           2 5
           1 1]
 
-function test(A::AbstractArray, losses::Array{Loss, 1}, s::Int64, k::Int64)
+function test(A::AbstractArray, losses::Array{Loss, 1}, s::Int64, k::Int64,
+        r::ColumnRegularizer)
     m, n = size(A)
     X_init = randn(k, m)
     Y_init = randn(k, embedding_dim(losses))
@@ -58,15 +59,27 @@ function test(A::AbstractArray, losses::Array{Loss, 1}, s::Int64, k::Int64)
         
         fglrm = FairGLRM(A, losses, IndependenceReg(scale, A[:, s]), ZeroReg(), k, s,
             WeightedLogSumExponentialLoss(10^(-6), weights),
-            X=deepcopy(X_init), Y=deepcopy(Y_init), Z=groups)
+            X=X_init, Y=Y_init, Z=groups)
         
-        fglrmX, fglrmY, ch = fit!(fglrm, params=p, verbose=false)
+        fglrmX, fglrmY, ch = fit!(fglrm, params=p, verbose=true)
+        reconstructed = fglrmX' * fglrmY
+        fname = "test_adult_independence_hsic_scale_$(scale).csv"
+        dir = "data/results/reconstructed"
+        fpath = joinpath(dir, fname)
         
         println("successfully fit fair GLRM")
         println("Final loss for this fair GLRM is $(ch.objective[end])")
+        CSV.write(fpath, Tables.table(reconstructed), ',')
         
         total_orthog = sum(evaluate(fglrm.rx[1], fglrmX[k, :]) for k=1:fglrm.k) / scale
         println("Independence penalty (without scaling) is $total_orthog")
+
+        fname = "penalty_adult_independence_hsic_scale_$(scale).txt"
+        dir = "data/results/penalties"
+        fpath = joinpath(dir, fname)
+        open(fpath, "w") do file
+            write(file, string(total_orthog))
+        end
     end
 end
 
@@ -136,13 +149,13 @@ end
 function test_adult()
     # Path to the Adult dataset
     # datapath = "/Users/vikramsondergaard/honours/data/adult/adult_trimmed.data"
-    datapath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/adult/adult_trimmed.data"
+    datapath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/adult/adult_sample.data"
     # Read the CSV file and convert it to a matrix
     adult_csv = CSV.read(datapath, DataFrame, header=1)
     A = convert(Matrix, adult_csv)
     # Gender is the 10th column in the Adult data set
     s = 3
-    k = 3
+    k = 2
 
     real_losses = [QuadLoss(), QuadLoss()]
 
@@ -160,14 +173,205 @@ function test_adult()
 
     losses = [real_losses..., bool_losses..., cat_losses..., ord_losses...]
 
-    test(A, losses, s, k)
+    m, n = size(A)
+    X_init = randn(k, m)
+    Y_init = randn(k, embedding_dim(losses))
+    groups = partition_groups(A, s, 2)
+    weights = [Float64(length(g)) / m for g in groups]
+    p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
+
+    glrm = GLRM(A, losses, ZeroReg(), ZeroReg(), k)
+    glrmX, glrmY, ch = fit!(glrm, params=p, verbose=false)
+    println("successfully fit vanilla GLRM")
+        
+    for scale in scales
+        println("Fitting independent fair GLRM with scale=$scale")
+        
+        fglrm = FairGLRM(A, losses, ZeroReg(), ZeroReg(), IndependenceReg(scale, A[:, s]), ZeroColReg(), k, s,
+            WeightedLogSumExponentialLoss(10^(-6), weights),
+            X=X_init, Y=Y_init, Z=groups)
+        
+        fglrmX, fglrmY, ch = fit!(fglrm, params=p, verbose=true)
+        reconstructed = fglrmX' * fglrmY
+        fname = "test_adult_independence_hsic_scale_$(scale).csv"
+        dir = "data/results/reconstructed"
+        fpath = joinpath(dir, fname)
+        
+        println("successfully fit fair GLRM")
+        println("Final loss for this fair GLRM is $(ch.objective[end])")
+        CSV.write(fpath, Tables.table(reconstructed))
+        
+        fair_total_orthog = sum(evaluate(fglrm.rkx[i], fglrmX[i, :]) for i=1:k) / scale
+        println("Independence penalty (without scaling) is $fair_total_orthog")
+
+        fname = "penalty_adult_independence_hsic_scale_$(scale).txt"
+        dir = "data/results/penalties"
+        fpath = joinpath(dir, fname)
+
+        total_orthog = sum(evaluate(IndependenceReg(scale, A[:, s]), glrmX[i, :]) for i=1:k) / scale
+        println("Independence penalty (without scaling) is $total_orthog")
+
+        open(fpath, "w") do file
+            write(file, "Fair GLRM: $fair_total_orthog\nVanilla GLRM: $total_orthog")
+        end
+    end
+
+    # p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
+    # glrm = GLRM(A, losses, ZeroReg(), ZeroReg(), k)
+    # glrmX, glrmY, ch = fit!(glrm, params=p, verbose=false)
+    # println("successfully fit vanilla GLRM")
+    # total_orthog = sum(evaluate(SoftOrthogonalReg(scale, A[:, s]), glrmX[i, :]) for i=1:k)
+    # println("Independence penalty (without scaling) is $total_orthog")
+
+    println("Passed test_large()!")
+end
+
+function test_adult_orthog()
+    # Path to the Adult dataset
+    # datapath = "/Users/vikramsondergaard/honours/data/adult/adult_trimmed.data"
+    datapath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/adult/adult_sample.data"
+    # Read the CSV file and convert it to a matrix
+    adult_csv = CSV.read(datapath, DataFrame, header=1)
+    A = convert(Matrix, adult_csv)
+    # Gender is the 10th column in the Adult data set
+    s = 3
+    k = 2
+
+    real_losses = [QuadLoss(), QuadLoss()]
+
+    bool_losses = [HingeLoss(), HingeLoss()]
+
+    n_workclasses = 9
+    n_relationships = 6
+    n_races = 5 # (from the data - there are not five races)
+    n_educations = 16
+    cat_losses = [OvALoss(n_workclasses, bin_loss=HingeLoss()),
+                OvALoss(n_relationships, bin_loss=HingeLoss()),
+                OvALoss(n_races, bin_loss=HingeLoss())]
+
+    ord_losses = [OrdinalHingeLoss(n_educations)]
+
+    losses = [real_losses..., bool_losses..., cat_losses..., ord_losses...]
+
+    m, n = size(A)
+    X_init = randn(k, m)
+    Y_init = randn(k, embedding_dim(losses))
+    groups = partition_groups(A, s, 2)
+    weights = [Float64(length(g)) / m for g in groups]
+    p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
+        
+        
+    fglrm = FairGLRM(A, losses, ZeroReg(), ZeroReg(), OrthogonalReg(A[:, s]), ZeroColReg(), k, s,
+        WeightedLogSumExponentialLoss(10^(-6), weights),
+        X=X_init, Y=Y_init, Z=groups)
+        
+    fglrmX, fglrmY, ch = fit!(fglrm, params=p, verbose=true)
+    reconstructed = fglrmX' * fglrmY
+    fname = "test_adult_independence_orthog.csv"
+    dir = "data/results/reconstructed"
+    fpath = joinpath(dir, fname)
+        
+    println("successfully fit fair GLRM")
+    println("Final loss for this fair GLRM is $(ch.objective[end])")
+    CSV.write(fpath, Tables.table(reconstructed))
+        
+    fair_total_orthog = sum(evaluate(fglrm.rkx[i], fglrmX[i, :]) for i=1:fglrm.k)
+    println("Independence penalty (without scaling) is $fair_total_orthog")
+
 
     p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
     glrm = GLRM(A, losses, ZeroReg(), ZeroReg(), k)
     glrmX, glrmY, ch = fit!(glrm, params=p, verbose=false)
     println("successfully fit vanilla GLRM")
-    total_orthog = sum(evaluate(IndependenceReg(1.0, A₄[:, s]), glrmX[i, :]) for i=1:k)
+    total_orthog = sum(evaluate(OrthogonalReg(1.0, A[:, s]), glrmX[i, :]) for i=1:k)
     println("Independence penalty (without scaling) is $total_orthog")
+
+    fname = "penalty_adult_independence_orthog.txt"
+    dir = "data/results/penalties"
+    fpath = joinpath(dir, fname)
+    open(fpath, "w") do file
+        write(file, "Fair GLRM: $fair_total_orthog\nVanilla GLRM: $total_orthog")
+    end
+
+    println("Passed test_large()!")
+end
+
+function test_adult_softorthog()
+    # Path to the Adult dataset
+    # datapath = "/Users/vikramsondergaard/honours/data/adult/adult_trimmed.data"
+    datapath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/adult/adult_sample.data"
+    # Read the CSV file and convert it to a matrix
+    adult_csv = CSV.read(datapath, DataFrame, header=1)
+    A = convert(Matrix, adult_csv)
+    # Gender is the 10th column in the Adult data set
+    s = 3
+    k = 2
+
+    real_losses = [QuadLoss(), QuadLoss()]
+
+    bool_losses = [HingeLoss(), HingeLoss()]
+
+    n_workclasses = 9
+    n_relationships = 6
+    n_races = 5 # (from the data - there are not five races)
+    n_educations = 16
+    cat_losses = [OvALoss(n_workclasses, bin_loss=HingeLoss()),
+                OvALoss(n_relationships, bin_loss=HingeLoss()),
+                OvALoss(n_races, bin_loss=HingeLoss())]
+
+    ord_losses = [OrdinalHingeLoss(n_educations)]
+
+    losses = [real_losses..., bool_losses..., cat_losses..., ord_losses...]
+
+    m, n = size(A)
+    X_init = randn(k, m)
+    Y_init = randn(k, embedding_dim(losses))
+    groups = partition_groups(A, s, 2)
+    weights = [Float64(length(g)) / m for g in groups]
+    p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
+
+    glrm = GLRM(A, losses, ZeroReg(), ZeroReg(), k)
+    glrmX, glrmY, ch = fit!(glrm, params=p, verbose=false)
+    println("successfully fit vanilla GLRM")
+        
+    for scale in scales
+        println("Fitting independent fair GLRM with scale=$scale")
+        
+        fglrm = FairGLRM(A, losses, ZeroReg(), ZeroReg(), SoftOrthogonalReg(scale, A[:, s]), ZeroColReg(), k, s,
+            WeightedLogSumExponentialLoss(10^(-6), weights),
+            X=X_init, Y=Y_init, Z=groups)
+        
+        fglrmX, fglrmY, ch = fit!(fglrm, params=p, verbose=true)
+        reconstructed = fglrmX' * fglrmY
+        fname = "test_adult_independence_softorthog_scale_$(scale).csv"
+        dir = "data/results/reconstructed"
+        fpath = joinpath(dir, fname)
+        
+        println("successfully fit fair GLRM")
+        println("Final loss for this fair GLRM is $(ch.objective[end])")
+        CSV.write(fpath, Tables.table(reconstructed))
+        
+        fair_total_orthog = sum(evaluate(fglrm.rkx[i], fglrmX[i, :]) for i=1:k) / scale
+        println("Independence penalty (without scaling) is $fair_total_orthog")
+
+        fname = "penalty_adult_independence_softorthog_scale_$(scale).txt"
+        dir = "data/results/penalties"
+        fpath = joinpath(dir, fname)
+
+        total_orthog = sum(evaluate(SoftOrthogonalReg(scale, A[:, s]), glrmX[i, :]) for i=1:k) / scale
+        println("Independence penalty (without scaling) is $total_orthog")
+
+        open(fpath, "w") do file
+            write(file, "Fair GLRM: $fair_total_orthog\nVanilla GLRM: $total_orthog")
+        end
+    end
+
+    # p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
+    # glrm = GLRM(A, losses, ZeroReg(), ZeroReg(), k)
+    # glrmX, glrmY, ch = fit!(glrm, params=p, verbose=false)
+    # println("successfully fit vanilla GLRM")
+    # total_orthog = sum(evaluate(SoftOrthogonalReg(scale, A[:, s]), glrmX[i, :]) for i=1:k)
+    # println("Independence penalty (without scaling) is $total_orthog")
 
     println("Passed test_large()!")
 end
@@ -179,3 +383,5 @@ end
 # test_large()
 
 test_adult()
+# test_adult_orthog()
+# test_adult_softorthog()
