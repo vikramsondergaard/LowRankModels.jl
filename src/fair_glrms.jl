@@ -10,6 +10,8 @@ mutable struct FairGLRM<:AbstractGLRM
     losses::Array{Loss,1}               # array of loss functions
     rx::Array{Regularizer,1}            # Array of regularizers to be applied to each column of X
     ry::Array{Regularizer,1}            # Array of regularizers to be applied to each column of Y
+    rkx::Array{ColumnRegularizer, 1}    # Array of regularizers to be applied to each row of X
+    rky::Array{ColumnRegularizer, 1}    # Array of regularizers to be applied to each row of Y
     k::Int                              # Desired rank
     protected_category                  # The protected characteristic with which to separate the data for Z
     group_functional::GroupFunctional   # The group functional that brings together all separate losses
@@ -65,7 +67,7 @@ function partition_groups(A, s::Int, n_groups::Int)
     groups
 end
 
-function FairGLRM(A, losses::Array, rx::Array, ry::Array, k::Int, s::Int, group_functional::GroupFunctional;
+function FairGLRM(A, losses::Array, rx::Array, ry::Array, rkx::Array, rky::Array, k::Int, s::Int, group_functional::GroupFunctional;
                   X = randn(k,size(A,1)), Y = randn(k,embedding_dim(losses)),
                   Z = partition_groups(A, s, length(group_functional.weights)),
                   obs = nothing,                                    # [(i₁,j₁), (i₂,j₂), ... (iₒ,jₒ)]
@@ -87,10 +89,10 @@ function FairGLRM(A, losses::Array, rx::Array, ry::Array, k::Int, s::Int, group_
     end
     if obs===nothing # if no specified array of tuples, use what was explicitly passed in or the defaults (all)
         # println("no obs given, using observed_features and observed_examples")
-        glrm = FairGLRM(A,losses,rx,ry,k, s, group_functional, observed_features, observed_examples, X,Y, Z)
+        glrm = FairGLRM(A,losses,rx,ry, rkx, rky, k, s, group_functional, observed_features, observed_examples, X,Y, Z)
     else # otherwise unpack the tuple list into arrays
         # println("unpacking obs into array")
-        glrm = FairGLRM(A,losses,rx,ry,k, s, group_functional, sort_observations(obs,size(A)...)..., X,Y, Z)
+        glrm = FairGLRM(A,losses,rx,ry, rkx, rky, k, s, group_functional, sort_observations(obs,size(A)...)..., X,Y, Z)
     end
 
     # check to make sure X is properly oriented
