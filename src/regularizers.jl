@@ -16,6 +16,7 @@ export Regularizer, ProductRegularizer, ColumnRegularizer, # abstract types
        fixed_last_latent_features, FixedLastLatentFeaturesConstraint,
        OrdinalReg, MNLOrdinalReg,
        RemQuadReg,
+       ZeroColReg,
        OrthogonalReg, SoftOrthogonalReg, # linearly independent regularisers
        IndependenceReg, SeparationReg, SufficiencyReg, # statistically independent regularisers
        # methods on regularizers
@@ -455,6 +456,14 @@ prox!(r::RemQuadReg, u::Array{Float64}, alpha::Number) = begin
         mul!(u, 1 / (1 + 2 * alpha * r.scale))
 end
 evaluate(r::RemQuadReg, a::AbstractArray) = r.scale * sum(abs2, a - r.m)
+
+mutable struct ZeroColReg<:ColumnRegularizer
+end
+prox(r::ZeroColReg,u::AbstractArray,alpha::Number) = u
+prox!(r::ZeroColReg,u::Array{Float64},alpha::Number) = u
+evaluate(r::ZeroColReg,a::AbstractArray) = 0
+scale(r::ZeroColReg) = 0
+mul!(r::ZeroColReg, newscale::Number) = 0
 
 """
 A regulariser for enforcing that every row of X (assuming the rows of X
