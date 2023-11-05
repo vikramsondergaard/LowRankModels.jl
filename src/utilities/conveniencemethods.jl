@@ -3,7 +3,7 @@
 ##############################################################
 
 import Base.copy
-export copy, copy_estimate, GLRM
+export copy, copy_estimate, GLRM, FairGLRM
 
 for T in :[Loss, Regularizer, AbstractGLRM].args
   @eval function copy(r::$T)
