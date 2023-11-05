@@ -321,6 +321,39 @@ The standard group loss. This computes ∑ₖ wₖzₖ for k ∈ [1, K].
 #     gradient
 # end
 
+mutable struct StandardLoss<:WeightedGroupFunctional
+    weights::Array{Float64}
+    Z::Array{Float64}
+    magnitude_Ωₖ::Array{Int64}
+end
+
+function evaluate(l::StandardLoss, losses::Array{<:Loss, 1}, XY,
+        A, Z, observed_features;
+        yidxs = get_yidxs(losses))
+    # Need to validate the weights are non-negative and normalised
+    validate_weights(l)
+    # This is the weighted exponential part of the output
+    ∑ₖwₖzₖ = 0.0
+    one_dim_XY = length(size(XY)) == 1
+    one_dim_A = length(size(A)) == 1
+    for (k, group) in enumerate(Z)
+        z_k = 0.0
+        # Get the magnitude of Ωₖ for calculating zₖ
+        for i in group
+            for j in observed_features[i]
+                # Calculate zₖ per row in Ωₖ
+                lossj = losses[j]
+                yidxsj = yidxs[j]
+                if one_dim_XY XYij = XY[yidxsj] else XYij = XY[i, yidxsj] end
+                if one_dim_A  Aij  = A[j]       else Aij  = A[i, j]       end
+                z_k += z(lossj, XYij, Aij, l.magnitude_Ωₖ[k])
+            end
+        end
+        ∑ₖwₖzₖ += l.weights[k] * z_k
+    end
+    ∑ₖwₖzₖ
+end
+
 """
 The weighted log-sum-exponential group loss. This computes
 log(∑ₖ wₖeᵅᶻ⁽ᵏ⁾) / α for k ∈ [1, K].
