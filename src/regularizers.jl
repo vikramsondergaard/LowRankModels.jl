@@ -575,14 +575,9 @@ mutable struct SoftOrthogonalReg<:ColumnRegularizer
     s::AbstractArray
 end
 SoftOrthogonalReg(s::AbstractArray) = SoftOrthogonalReg(1, s)
-evaluate(r::SoftOrthogonalReg, u::AbstractArray) = r.scale * dot(u, r.s)^2
+evaluate(r::SoftOrthogonalReg, u::AbstractArray) = r.scale * dot(normalise(u), r.s)^2
 prox(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
-    mean_u = length(size(u)) == 1 ? mean(u) : mean(u, dims=1)
-    normalised_u = normalise(u)
-    orthog_u = normalised_u - alpha * r.scale * project(r.s, normalised_u)
-    if length(size(orthog_u)) == 1 return orthog_u .+ mean_u
-    else                           return broadcast(+, orthog_u, mean_u)
-    end
+    return u + r.scale * alpha * (2 * dot(r.s, r.s) * normalise(u))
 end
 prox!(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
     u = prox(r, u, alpha)
