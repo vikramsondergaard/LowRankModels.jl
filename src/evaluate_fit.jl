@@ -32,16 +32,17 @@ function objective(fglrm::FairGLRM, X::Array{Float64,2}, Y::Array{Float64,2},
     @assert(size(X)==(fglrm.k,m))
     # Use the provided group functional to evaluate the total loss
     total_err = evaluate(fglrm.group_functional, fglrm.losses, XY, fglrm.A, fglrm.Z, fglrm.observed_features)
-    # add regularization penalty
-    if include_regularization
-        total_err += calc_penalty(fglrm,X,Y; yidxs = yidxs)
-    end
     if eltype(fglrm.observed_features) == UnitRange{Int64}
         magnitude_Ω = sum(length(f) for f in fglrm.observed_features)
     else
         magnitude_Ω = size(fglrm.observed_features, 1) * size(fglrm.observed_features, 2)
     end
-    return total_err * magnitude_Ω
+    total_err *= magnitude_Ω
+    # add regularization penalty
+    if include_regularization
+        total_err += calc_penalty(fglrm,X,Y; yidxs = yidxs)
+    end
+    return total_err
 end
 
 function row_objective(glrm::AbstractGLRM, i::Int, x::AbstractArray, Y::Array{Float64,2} = glrm.Y;
@@ -157,12 +158,30 @@ function calc_penalty(glrm::AbstractGLRM, X::Array{Float64,2}, Y::Array{Float64,
     @assert(size(Y)==(glrm.k,yidxs[end][end]))
     @assert(size(X)==(glrm.k,m))
     penalty = 0.0
-    if isa(glrm.rx[1], ColumnRegularizer) return sum(evaluate(glrm.rx[1], X[i, :]) for i=1:size(X, 1)) end
     for i=1:m
         penalty += evaluate(glrm.rx[i], view(X,:,i))
     end
     for f=1:n
         penalty += evaluate(glrm.ry[f], view(Y,:,yidxs[f]))
+    end
+    return penalty
+end
+
+function calc_penalty(glrm::FairGLRM, X::Array{Float64, 2}, Y::Array{Float64, 2})
+    yidxs = get_yidxs(glrm.losses)
+    m,n = size(glrm.A)
+    @assert(size(Y)==(glrm.k,yidxs[end][end]))
+    @assert(size(X)==(glrm.k,m))
+    penalty = 0.0
+    for i=1:m
+        penalty += evaluate(glrm.rx[i], view(X,:,i))
+    end
+    for f=1:n
+        penalty += evaluate(glrm.ry[f], view(Y,:,yidxs[f]))
+    end
+    for k_prime=1:glrm.k
+        penalty += evaluate(glrm.rkx[k_prime], view(X, k_prime, :))
+        penalty += evaluate(glrm.rky[k_prime], view(Y, k_prime, :))
     end
     return penalty
 end
