@@ -9,6 +9,7 @@ using SparseArrays
 using Random
 using Statistics
 using DataFrames
+using ArgParse
 
 import LinearAlgebra: dot, norm, Diagonal, rmul!, mul!, tr
 import Base: show
@@ -58,6 +59,7 @@ include("sample.jl")
 # utilities
 include("utilities/conveniencemethods.jl")
 include("utilities/deprecated.jl")
+include("utilities/yaml.jl")
 
 # ScikitLearn.jl compatibility
 include("scikitlearn.jl")
