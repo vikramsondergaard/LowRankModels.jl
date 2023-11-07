@@ -2,3 +2,4 @@ Manifest.toml
 data/**
 src/utilities/generate_convenience_methods.py
 julia-1.9.3/**
+src/run_experiments.sh
