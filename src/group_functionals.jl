@@ -96,7 +96,7 @@ Computes zₖ as per the definition in "Towards Fair Unsupervised Learning".
 # Returns
 The value of zₖ.
 """
-function z(loss::L where L<:Loss, u::Vector{Float64}, a::Number, magnitude_Ωₖ::Int64)
+function z(loss::L where L<:Loss, u::Vector, a::Number, magnitude_Ωₖ::Int64)
     if isa(loss, MultinomialLoss) || isa(loss, OvALoss)
         eval = evaluate(loss, u, a) / magnitude_Ωₖ
     # This is the case for the single-dimension loss functions.
