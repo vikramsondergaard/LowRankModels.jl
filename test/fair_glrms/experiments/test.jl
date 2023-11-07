@@ -81,6 +81,8 @@ function test(test_reg::String)
             regulariser = regtype(relative_scale, normalise(data[:, s]))
         elseif test_reg == "separation"
             regulariser = SeparationReg(relative_scale, data[:, s], data[:, y_idx], regtype)
+        elseif test_reg == "sufficiency"
+            regulariser = SufficiencyReg(relative_scale, data[:, s], data[:, y_idx], regtype)
         else
             error("Regulariser $test_reg not implemented yet!")
             regulariser = nothing
