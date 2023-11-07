@@ -654,29 +654,30 @@ mutable struct SufficiencyReg<:ColumnRegularizer
     s::AbstractArray
     y::AbstractArray
     α::Float64
+    r::DataType
 end
-SufficiencyReg(s::AbstractArray, y::AbstractArray) = SufficiencyReg(1.0, s, y, 0.5)
-SufficiencyReg(scale::Float64, s::AbstractArray, y::AbstractArray) = SufficiencyReg(scale, s, y, 0.5)
+SufficiencyReg(s::AbstractArray, y::AbstractArray, r::DataType) = SufficiencyReg(1.0, s, y, 0.5, r)
+SufficiencyReg(scale::Float64, s::AbstractArray, y::AbstractArray, r::DataType) = SufficiencyReg(scale, s, y, 0.5, r)
 evaluate(r::SufficiencyReg, u::AbstractArray) = begin
     total_loss = 0.0
     if length(size(u)) == 1
         groups = bin(u)
         filter!(g -> length(g) > 1, groups)
         for g in groups
-            n = length(g)
             s_g = r.s[g]
+            reg = r.r(r.scale, normalise(s_g))
             y_g = r.y[g]
-            total_loss += hsic_gam(reshape(y_g, (n, 1)), reshape(s_g, (n, 1)), r.α)
+            total_loss += evaluate(reg, y_g)
         end
     else
         for j=1:size(u, 2)
             groups = bin(u[:, j])
             filter!(g -> length(g) > 1, groups)
             for g in groups
-                n = length(g)
                 s_g = r.s[g]
+                reg = r.r(r.scale, normalise(s_g))
                 y_g = r.y[g]
-                total_loss += hsic_gam(reshape(y_g, (n, 1)), reshape(s_g, (n, 1)), r.α)
+                total_loss += evaluate(reg, y_g)
             end
         end
     end
@@ -688,12 +689,12 @@ prox(r::SufficiencyReg, u::AbstractArray, alpha::Float64) = begin
         bins = choose_bins(length(u))
         d = (maximum(u) - minimum(u)) / bins
         for i=1:length(u)
-            min_hsic = evaluate(r, u)
+            min_independence = evaluate(r, u)
             for d_prime in [d, -d]
                 u[i] = u[i] - d_prime
-                hsic = evaluate(r, u)
-                if hsic < min_hsic
-                    min_hsic = hsic
+                independence = evaluate(r, u)
+                if independence < min_independence
+                    min_independence = independence
                     u_prime[i] = u[i] + (1 - alpha) * r.scale * d_prime
                 end
                 u[i] = u[i] + d_prime
@@ -706,12 +707,12 @@ prox(r::SufficiencyReg, u::AbstractArray, alpha::Float64) = begin
             u_j = u[:, j]
             d = (max(u_j) - min(u_j)) / bins
             for i=1:n_rows
-                min_hsic = evaluate(r, u_j)
+                min_independence = evaluate(r, u_j)
                 for d_prime in [d, -d]
                     u_j[i] = u_j[i] - d_prime
-                    hsic = evaluate(r, u_j)
-                    if hsic < min_hsic
-                        min_hsic = hsic
+                    independence = evaluate(r, u_j)
+                    if independence < min_independence
+                        min_independence = independence
                         u_prime[i, j] = u_j[i] + (1 - alpha) * r.scale * d_prime
                     end
                     u_j[i] = u_j[i] + d_prime
