@@ -492,7 +492,10 @@ Checks if two vectors are orthogonal to one another.
 is_orthogonal(s::AbstractArray, X::AbstractArray) = begin
     # Note there is a small numerical tolerance; feel free to change this if
     # you'd like
-    if length(size(X)) == 1 return abs(dot(X, s)) <= TOL end
+    if length(size(X)) == 1 
+        dot_product = abs(dot(X, s))
+        return dot_product <= TOL 
+    end
     for i=1:size(X, 1)
         if abs(dot(X[i, :], s)) > TOL return false end
     end
@@ -507,8 +510,10 @@ Calculate the vector projection of each column of `X` onto `s`.
 - `X`: The vector(s) that are being projected onto `s`.
 """
 project(s::AbstractArray, X::AbstractArray) = begin
-    if length(size(X)) == 1 return dot(X, s) / dot(s, s) * s end # 1 dimension
-    return [dot(X[i, :], s) / dot(s, s) * s for i=1:m]           # 2+ dimensions
+    if length(size(X)) == 1 return (dot(X, s) / dot(s, s)) * s       end # 1 dimension
+    m, n = size(X)
+    if n == 1               return dot(X[:, 1], s) / dot(s, s) * s end
+    return [dot(X[:, i], s) / dot(s, s) * s for i=1:n]           # 2+ dimensions
 end
 
 """
@@ -560,7 +565,8 @@ prox(r::OrthogonalReg, u::AbstractArray, alpha::Number) = begin
     normalised_u = normalise(u)
     # Get the orthogonal component of the vector projection (the vector
     # rejection?)
-    orthog_u = normalised_u - project(r.s, normalised_u)
+    projected_u = project(r.s, normalised_u)
+    orthog_u = normalised_u - projected_u
     if length(size(orthog_u)) == 1 return orthog_u .+ mean_u             # 1 dimension
     else                           return broadcast(+, orthog_u, mean_u) # 2+ dimensions
     end
@@ -577,7 +583,7 @@ end
 SoftOrthogonalReg(s::AbstractArray) = SoftOrthogonalReg(1, s)
 evaluate(r::SoftOrthogonalReg, u::AbstractArray) = r.scale * dot(normalise(u), r.s)^2
 prox(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
-    return u + r.scale * alpha * (2 * dot(r.s, r.s) * normalise(u))
+    return u - r.scale * alpha * (2 * dot(normalise(u), r.s) * r.s)
 end
 prox!(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
     u = prox(r, u, alpha)
@@ -609,16 +615,17 @@ mutable struct SeparationReg<:ColumnRegularizer
     y::AbstractArray
     groups::AbstractArray
     α::Float64
+    r::DataType
 end
-SeparationReg(s::AbstractArray, y::AbstractArray) = SeparationReg(1, s, y, bin(y), 0.5)
-SeparationReg(scale::Float64, s::AbstractArray, y::AbstractArray) = SeparationReg(scale, s, y, bin(y), 0.5)
-SeparationReg(s::AbstractArray, y::AbstractArray, groups::AbstractArray) = SeparationReg(1, s, y, groups, 0.5)
+SeparationReg(s::AbstractArray, y::AbstractArray, r::DataType) = SeparationReg(1, s, y, bin(y), 0.5, r)
+SeparationReg(scale::Float64, s::AbstractArray, y::AbstractArray, r::DataType) = SeparationReg(scale, s, y, bin(y), 0.5, r)
+SeparationReg(s::AbstractArray, y::AbstractArray, groups::AbstractArray, r::DataType) = SeparationReg(1, s, y, groups, 0.5, r)
 evaluate(r::SeparationReg, u::AbstractArray) = begin
     total_loss = 0.0
     for g in r.groups
-        ind_reg = IndependenceReg(r.scale, r.s[g], r.α)
-        u_g = u[g]
-        total_loss += evaluate(ind_reg, reshape(u_g, (length(u_g), 1)))
+        reg = r.r(r.scale, normalise(r.s[g]))
+        u_g = normalise(u[g])
+        total_loss += evaluate(reg, u_g)
     end
     total_loss
 end
@@ -626,16 +633,16 @@ prox(r::SeparationReg, u::AbstractArray, alpha::Float64) = begin
     grad = zeros(size(u))
     for g in r.groups
         u_g = u[g]
-        s_g = r.s[g]
-        n = length(u_g)
-        subgrad = hsic_grad(reshape(u_g, (n, 1)), reshape(s_g, (n, 1)))
+        s_g = normalise(r.s[g])
+        reg = r.r(r.scale, s_g)
+        subgrad = u_g .- prox(reg, u_g, alpha)
         i = 1
         for j in g
             grad[j] += subgrad[i]
             i += 1
         end
     end
-    u .- ((alpha * r.scale) .* grad)
+    u .- grad
 end
 prox!(r::SeparationReg, u::AbstractArray, alpha::Float64) = begin
     u = prox(r, u, alpha)
