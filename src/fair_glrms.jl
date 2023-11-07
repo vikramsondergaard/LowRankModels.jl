@@ -62,7 +62,7 @@ function partition_groups(A, s::Int, n_groups::Int)
             k = row[s]
         end
         # The dictionary doesn't yet have this key - add it to the dictionary
-        push!(groups[k], r)
+        push!(groups[Int(k)], r)
     end
     groups
 end
