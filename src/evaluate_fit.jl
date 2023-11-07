@@ -167,23 +167,26 @@ function calc_penalty(glrm::AbstractGLRM, X::Array{Float64,2}, Y::Array{Float64,
     return penalty
 end
 
-function calc_penalty(glrm::FairGLRM, X::Array{Float64, 2}, Y::Array{Float64, 2})
-    yidxs = get_yidxs(glrm.losses)
+function calc_penalty(glrm::FairGLRM, X::Array{Float64, 2}, Y::Array{Float64, 2};
+        yidxs = get_yidxs(glrm.losses))
     m,n = size(glrm.A)
     @assert(size(Y)==(glrm.k,yidxs[end][end]))
     @assert(size(X)==(glrm.k,m))
-    penalty = 0.0
+    rx_penalty = 0.0
+    ry_penalty = 0.0
+    rkx_penalty = 0.0
+    rky_penalty = 0.0
     for i=1:m
-        penalty += evaluate(glrm.rx[i], view(X,:,i))
+        rx_penalty += evaluate(glrm.rx[i], view(X,:,i))
     end
     for f=1:n
-        penalty += evaluate(glrm.ry[f], view(Y,:,yidxs[f]))
+        ry_penalty += evaluate(glrm.ry[f], view(Y,:,yidxs[f]))
     end
     for k_prime=1:glrm.k
-        penalty += evaluate(glrm.rkx[k_prime], view(X, k_prime, :))
-        penalty += evaluate(glrm.rky[k_prime], view(Y, k_prime, :))
+        rkx_penalty += evaluate(glrm.rkx[k_prime], view(X, k_prime, :))
+        rky_penalty += evaluate(glrm.rky[k_prime], view(Y, k_prime, :))
     end
-    return penalty
+    return rx_penalty + ry_penalty + rkx_penalty + rky_penalty
 end
 
 ## ERROR METRIC EVALUATION (BASED ON DOMAINS OF THE DATA)
