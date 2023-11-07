@@ -90,7 +90,7 @@ function test(test_reg::String)
             WeightedLogSumExponentialLoss(10^(-6), weights),
             X=copy(X_init), Y=copy(Y_init), Z=groups)
             
-        fglrmX, fglrmY, ch = fit!(fglrm, params=p, verbose=true)
+        fglrmX, fglrmY, fair_ch = fit!(fglrm, params=p, verbose=true)
         reconstructed = fglrmX' * fglrmY
         fname = "projected_data.csv"
         dir = "data/results/$d/$test_reg/$(fairness)/scale_$scale"
@@ -98,7 +98,7 @@ function test(test_reg::String)
         fpath = joinpath(dir, fname)
             
         println("successfully fit fair GLRM")
-        println("Final loss for this fair GLRM is $(ch.objective[end])")
+        println("Final loss for this fair GLRM is $(fair_ch.objective[end])")
         CSV.write(fpath, Tables.table(reconstructed))
             
         fair_total_orthog = sum(evaluate(fglrm.rkx[i], fglrmX[i, :]) for i=1:k) / relative_scale
@@ -113,7 +113,7 @@ function test(test_reg::String)
         println("Penalty for vanilla GLRM (with scaling) is $(total_orthog * relative_scale)")
     
         open(fpath, "w") do file
-            write(file, "Fair GLRM: $fair_total_orthog\nVanilla GLRM: $total_orthog")
+            write(file, "Loss (Fair GLRM): $(fair_ch.objective[end])\nLoss (Vanilla GLRM): $(ch.objective[end])\nFairness penalty (Fair GLRM): $fair_total_orthog\nFairness penalty (Vanilla GLRM): $total_orthog")
         end
     end
 
