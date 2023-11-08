@@ -1,4 +1,4 @@
-using LowRankModels, Statistics, Random, CSV, DataFrames, Tables, ArgParse
+using LowRankModels, Statistics, Random, CSV, DataFrames, Tables, ArgParse, Dates
 import YAML
 
 export normalise, parse_commandline, test
@@ -62,10 +62,12 @@ function test(test_reg::String)
     glrmX, glrmY, ch = fit!(glrm, params=p, verbose=true)
     println("successfully fit vanilla GLRM")
 
+    fairness = args["fairness"][1]
+
+    println("Starting test for $test_reg using $fairness on the $d dataset at date/time $(now())")
+
     for scale in params["scales"]
         println("Fitting fair GLRM with scale=$scale")
-    
-        fairness = args["fairness"][1]
         if fairness == "hsic"
             regtype = IndependenceReg
         elseif fairness == "orthog"
@@ -82,7 +84,8 @@ function test(test_reg::String)
         elseif test_reg == "separation"
             regulariser = SeparationReg(relative_scale, data[:, s], data[:, y_idx], regtype)
         elseif test_reg == "sufficiency"
-            regulariser = SufficiencyReg(relative_scale, data[:, s], data[:, y_idx], regtype)
+            separator = params["is_target_feature_categorical"] ? encode_to_one_hot(data[:, y_idx]) : data[:, y_idx]
+            regulariser = SufficiencyReg(relative_scale, data[:, s], separator, regtype)
         else
             error("Regulariser $test_reg not implemented yet!")
             regulariser = nothing
