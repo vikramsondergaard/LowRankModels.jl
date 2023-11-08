@@ -122,4 +122,7 @@ function test(test_reg::String)
         end
     end
 
+    println("Finished test for $test_reg using $fairness on the $d dataset at date/time $(now())")
+    println()
+
 end
