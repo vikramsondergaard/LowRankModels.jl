@@ -272,7 +272,6 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
     alphacol = params.stepsize*ones(n)
     # this is the step size of each component of X
     alphaxcol = params.stepsize*ones(k)
-    alpha = params.stepsize
     # stopping criterion: stop when decrease in objective < tol, scaled by the number of observations
     scaled_abs_tol = params.abs_tol * mapreduce(length,+,glrm.observed_features)
 
@@ -357,7 +356,7 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
                 end
                 # take a proximal gradient step to update ve[e]
                 l = length(glrm.observed_features[e]) + 1 # if each loss function has lipshitz constant 1 this bounds the lipshitz constant of this example's objective
-                obj_by_row[e] = row_objective(glrm, e, ve[e]) # previous row objective value
+                obj_by_row[e] = row_objective(glrm, e, X) # previous row objective value
                 while alpharow[e] > params.min_stepsize
                     stepsize = alpharow[e]/l
                     # newx = prox(rx[e], ve[e] - stepsize*g, stepsize) # this will use much more memory than the inplace version with linesearch below
@@ -365,7 +364,7 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
                     axpy!(-stepsize,g,newve[e])
                     ## prox step: Xᵢ = prox_rx(Xᵢ, α/l)
                     prox!(rx[e],newve[e],stepsize)
-                    if row_objective(glrm, e, newve[e]) < obj_by_row[e]
+                    if row_objective(glrm, e, newX) < obj_by_row[e]
                         copyto!(ve[e], newve[e])
                         alpharow[e] *= 1.05
                         break
@@ -381,13 +380,14 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
             end # for e=1:m
             for k_prime=1:k # new section that I've added for component-wise gradient
                 l = m + 1 # if each loss function has lipshitz constant 1 this bounds the lipshitz constant of this example's objective
-                obj_by_component[k_prime] = evaluate(rkx[k_prime], vk[k_prime]) # calculate regulariser value for each component
+                obj_by_component[k_prime] = component_objective(glrm, k_prime, X) # calculate regulariser value for each component
                 while alphaxcol[k_prime] > params.min_stepsize
                     stepsize = alphaxcol[k_prime] / l
                     new_comp = prox(rkx[k_prime], newvk[k_prime], stepsize) # perform the proximal gradient step using the regulariser
-                    eval = evaluate(rkx[k_prime], new_comp)
+                    copyto!(newvk[k_prime], new_comp)
+                    eval = component_objective(glrm, k_prime, newX)
                     if eval < obj_by_component[k_prime]
-                        copyto!(vk[k_prime], new_comp)
+                        copyto!(vk[k_prime], newvk[k_prime])
                         alphaxcol[k_prime] *= 1.05
                         break
                     else # the stepsize was too big; undo and try again only smaller
