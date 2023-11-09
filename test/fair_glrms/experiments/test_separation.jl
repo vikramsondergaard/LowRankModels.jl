@@ -1,2 +1,6 @@
 include("test.jl")
+include("test_vanilla_glrm.jl")
+include("test_pca.jl")
+test_pca("separation")
+test_vanilla_glrm("separation")
 test("separation")

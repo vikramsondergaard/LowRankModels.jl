@@ -1,7 +1,7 @@
 using LowRankModels, Statistics, Random, CSV, DataFrames, Tables, ArgParse, Dates
 import YAML
 
-export normalise, parse_commandline, test
+export normalise, parse_commandline, test, standardise!
 
 normalise(A::AbstractArray) = A .- mean(A)
 
@@ -16,12 +16,25 @@ function parse_commandline()
             nargs = 1
             help = "which measure of fairness to use"
             required = true
+        "-k"
+            arg_type = Int
+            help = "the number of components to which to reduce the data"
+            default = 2
     end
     return parse_args(s)
 end
 
+function standardise!(data::DataFrame, rl::Int64)
+    for i=1:rl
+        data[!, i] = convert.(Float64, data[!, i])
+        data[!, i] = normalise(data[!, i])
+    end
+    data
+end
+
 function test(test_reg::String)
     args = parse_commandline()
+    println(args)
 
     Random.seed!(1)
 
@@ -40,15 +53,12 @@ function test(test_reg::String)
     params = YAML.load(open(yamlpath))
     rl, bl, cl, ol = parse_losses(params["losses"])
 
-    for i=1:length(rl)
-        data[!, i] = convert.(Float64, data[!, i])
-        data[!, i] = normalise(data[!, i])
-    end
+    standardise!(data, length(rl))
 
     losses = [rl..., bl..., cl..., ol...]
 
     s = params["protected_characteristic_idx"]
-    k = params["num_reduced_dimensions"]
+    k = args["k"]
     y_idx = params["target_feature"]
 
     m, n = size(data)
@@ -57,10 +67,6 @@ function test(test_reg::String)
     groups = partition_groups(data, s, 2)
     weights = [Float64(length(g)) / m for g in groups]
     p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
-
-    glrm = GLRM(data, losses, ZeroReg(), ZeroReg(), k)
-    glrmX, glrmY, ch = fit!(glrm, params=p, verbose=true)
-    println("successfully fit vanilla GLRM")
 
     fairness = args["fairness"][1]
 
@@ -98,7 +104,7 @@ function test(test_reg::String)
         fglrmX, fglrmY, fair_ch = fit!(fglrm, params=p, verbose=true)
         reconstructed = fglrmX' * fglrmY
         fname = "projected_data.csv"
-        dir = "data/results/$d/$test_reg/$(fairness)/scale_$scale"
+        dir = "data/results/$d/$(args["k"])_components/$test_reg/$(fairness)/scale_$scale"
         mkpath(dir)
         fpath = joinpath(dir, fname)
             
@@ -113,12 +119,8 @@ function test(test_reg::String)
         fname = "penalty.txt"
         fpath = joinpath(dir, fname)
     
-        total_orthog = sum(evaluate(regulariser, glrmX[i, :]) for i=1:k) / relative_scale
-        println("Penalty for vanilla GLRM (without scaling) is $total_orthog")
-        println("Penalty for vanilla GLRM (with scaling) is $(total_orthog * relative_scale)")
-    
         open(fpath, "w") do file
-            write(file, "Loss (Fair GLRM): $(fair_ch.objective[end])\nLoss (Vanilla GLRM): $(ch.objective[end])\nFairness penalty (Fair GLRM): $fair_total_orthog\nFairness penalty (Vanilla GLRM): $total_orthog")
+            write(file, "Loss: $(fair_ch.objective[end])\nFairness penalty (unscaled): $fair_total_orthog\nFairness penalty (scaled): $(fair_total_orthog * relative_scale)")
         end
     end
 
