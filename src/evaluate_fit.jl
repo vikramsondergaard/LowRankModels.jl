@@ -88,7 +88,7 @@ function component_objective(fglrm::FairGLRM, k::Int, X::Array{Float64, 2};
     if include_objective
         reg_err = sum(evaluate(fglrm.rx[i], X[:, i]) for i=1:m)
         xy = X' * fglrm.Y
-        obj_err = err = evaluate(fglrm.group_functional, fglrm.losses, xy, fglrm.A, fglrm.Z, fglrm.observed_features, yidxs=yidxs)
+        obj_err = evaluate(fglrm.group_functional, fglrm.losses, xy, fglrm.A, fglrm.Z, fglrm.observed_features, yidxs=yidxs)
         err += (reg_err + obj_err) / n_components
     end
     return err
