@@ -7,7 +7,7 @@ function test_vanilla_glrm(test_reg::String)
     Random.seed!(1)
 
     d = args["data"][1]
-    if d == "adult"
+    if d == "adult" || d == "adult_low_scale"
         datapath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/adult/adult_sample.data"
         yamlpath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/parameters/adult.yml"
     elseif d == "adobservatory"
@@ -21,7 +21,7 @@ function test_vanilla_glrm(test_reg::String)
     params = YAML.load(open(yamlpath))
     rl, bl, cl, ol = parse_losses(params["losses"])
 
-    standardise!(data, length(rl))
+    # standardise!(data, length(rl))
 
     losses = [rl..., bl..., cl..., ol...]
 
@@ -37,7 +37,7 @@ function test_vanilla_glrm(test_reg::String)
 
     fairness = args["fairness"][1]
 
-    dir = "data/results/$d/$test_reg/$(fairness)/benchmarks"
+    dir = "data/results/$d/$(args["k"])_components/$test_reg/$(fairness)/benchmarks"
     mkpath(dir)
     fname = "vanilla_glrm_penalty.txt"
     fpath = joinpath(dir, fname)
@@ -69,4 +69,6 @@ function test_vanilla_glrm(test_reg::String)
     open(fpath, "w") do file
         write(file, "Loss: $(ch.objective[end])\nFairness penalty (unscaled): $total_orthog")
     end
+
+    return glrmX, glrmY
 end

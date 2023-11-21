@@ -29,7 +29,7 @@ function test_pca(test_reg::String)
     Random.seed!(1)
 
     d = args["data"][1]
-    if d == "adult"
+    if d == "adult" || d == "adult_low_scale"
         datapath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/adult/adult_sample.data"
         yamlpath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/parameters/adult.yml"
     elseif d == "adobservatory"
@@ -70,7 +70,7 @@ function test_pca(test_reg::String)
 
     fairness = args["fairness"][1]
 
-    dir = "data/results/$d/$test_reg/$(fairness)/benchmarks"
+    dir = "data/results/$d/$(args["k"])_components/$test_reg/$(fairness)/benchmarks"
     mkpath(dir)
     fname = "pca_penalty.txt"
     fpath = joinpath(dir, fname)

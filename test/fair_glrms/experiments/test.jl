@@ -32,16 +32,16 @@ function standardise!(data::DataFrame, rl::Int64)
     data
 end
 
-function test(test_reg::String)
+function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
     args = parse_commandline()
     println(args)
 
     Random.seed!(1)
 
     d = args["data"][1]
-    if d == "adult"
+    if d == "adult" || d == "adult_low_scale"
         datapath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/adult/adult_sample.data"
-        yamlpath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/parameters/adult.yml"
+        yamlpath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/parameters/$(d).yml"
     elseif d == "adobservatory"
         datapath = "/path/to/ad_observatory_data"
     else
@@ -99,7 +99,7 @@ function test(test_reg::String)
             
         fglrm = FairGLRM(data, losses, ZeroReg(), ZeroReg(), regulariser, ZeroColReg(), k, s,
             WeightedLogSumExponentialLoss(10^(-6), weights),
-            X=copy(X_init), Y=copy(Y_init), Z=groups)
+            X=copy(glrmX), Y=copy(glrmY), Z=groups)
             
         fglrmX, fglrmY, fair_ch = fit!(fglrm, params=p, verbose=true)
         reconstructed = fglrmX' * fglrmY
@@ -122,6 +122,8 @@ function test(test_reg::String)
         open(fpath, "w") do file
             write(file, "Loss: $(fair_ch.objective[end])\nFairness penalty (unscaled): $fair_total_orthog\nFairness penalty (scaled): $(fair_total_orthog * relative_scale)")
         end
+
+        if fairness == "orthog" break end
     end
 
     println("Finished test for $test_reg using $fairness on the $d dataset at date/time $(now())")
