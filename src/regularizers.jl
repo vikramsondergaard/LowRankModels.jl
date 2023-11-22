@@ -5,7 +5,7 @@
 
 import Base: *
 
-export Regularizer, ProductRegularizer, ColumnRegularizer, # abstract types
+export Regularizer, ProductRegularizer, ColumnRegularizer, DependenceMeasure, # abstract types
        # concrete regularizers
        QuadReg, QuadConstraint,
        OneReg, ZeroReg, NonNegConstraint, NonNegOneReg, NonNegQuadReg,
@@ -602,7 +602,10 @@ evaluate(r::IndependenceReg, u::AbstractArray) = begin
     hsic = hsic_gam(reshape(u, (n, 1)), reshape(r.s, (n, 1)), r.α)
     r.scale * hsic
 end
-prox(r::IndependenceReg, u::AbstractArray, alpha::Number) = u .- r.scale .* alpha .* hsic_grad(u, r.s)
+prox(r::IndependenceReg, u::AbstractArray, alpha::Number) = begin 
+    grad = hsic_grad(reshape(u, (n, 1)), reshape(r.s, (n, 1)))
+    u .- r.scale .* alpha .* grad
+end
 prox!(r::IndependenceReg, u::AbstractArray, alpha::Number) = begin
     n = length(u)
     u = u .- ((alpha * r.scale) .* hsic_grad(reshape(u, (n, 1)), reshape(r.s, (n, 1))))
@@ -732,3 +735,34 @@ evaluate(r::Regularizer, u::Number) = evaluate(r, [u])
 prox(r::Regularizer, u::Number, alpha::Number) = prox(r, [u], alpha)[1]
 # if step size not specified, step size = 1
 prox(r::Regularizer, u) = prox(r, u, 1)
+
+Label::Type = Union{Int64, String}
+TargetDict::Type = Dict{Label, Array{Int64, 1}}
+"""
+This is a regulariser that will attempt to combine the independence and
+separation (and maybe even sufficiency) regularisers and make it possible to
+separate the data based on a subset of the possible values of each target
+feature.
+"""
+mutable struct GeneralFairnessRegulariser<:ColumnRegularizer
+    scales::Array{Float64, 1}   # The scale for calculating statistical
+                                # dependence wrt each protected characteristic
+    protected::Matrix{Float64}  # The protected characteristic(s): layout is
+                                # m × s (where s is the number of protected
+                                # characteristics)
+    targets::TargetDict         # The target feature(s) - the keys can either
+                                # be column indices or column labels
+    groups::Matrix{Int64}       # The indices of each separate "group": these
+                                # are separated by the target feature(s)
+    regtype::DataType           # orthogonality, soft orthogonality or hsic
+end
+function GeneralFairnessRegulariser(protected::Matrix{Float64}, 
+        targets::TargetDict=TargetDict(), 
+        regtype::DataType;
+        scales::Array{Float64, 1}=ones(Float64, size(protected, 1)),
+        normalised::Bool=false)
+    if normalised  reg = regtype(scales, protected)
+    else           reg = regtype(scales, normalise(protected))
+    end
+
+end
