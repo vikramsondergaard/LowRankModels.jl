@@ -219,7 +219,7 @@ function fit!(glrm::GLRM, params::ProxGradParams;
         if i>10 && (obj_decrease < scaled_abs_tol || obj_decrease/obj < params.rel_tol)
             break
         end
-        if verbose && i%10==0
+        if verbose # && i%10==0
             println("Iteration $i: objective value = $(ch.objective[end])")
         end
     end
@@ -386,7 +386,8 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
                     new_comp = prox(rkx[k_prime], newvk[k_prime], stepsize) # perform the proximal gradient step using the regulariser
                     copyto!(newvk[k_prime], new_comp)
                     eval = component_objective(glrm, k_prime, newX)
-                    if eval < obj_by_component[k_prime]
+                    # println("eval is: $eval")
+                    if eval <= obj_by_component[k_prime]
                         copyto!(vk[k_prime], newvk[k_prime])
                         alphaxcol[k_prime] *= 1.05
                         break
