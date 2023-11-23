@@ -510,8 +510,8 @@ Calculate the vector projection of each column of `X` onto `s`.
 - `X`: The vector(s) that are being projected onto `s`.
 """
 project(s::AbstractArray, X::AbstractArray) = begin
-    if length(size(X)) == 1 return (dot(X, s) / dot(s, s)) * s       end # 1 dimension
-    m, n = size(X)
+    if length(size(X)) == 1 return (dot(X, s) / dot(s, s)) * s     end # 1 dimension
+    _, n = size(X)
     if n == 1               return dot(X[:, 1], s) / dot(s, s) * s end
     return [dot(X[:, i], s) / dot(s, s) * s for i=1:n]           # 2+ dimensions
 end
@@ -524,8 +524,10 @@ vectors need to be mean-centred at 0 and be orthogonal.
 - `u`: The array to be normalised.
 """
 normalise(u::AbstractArray) = begin
-    if length(size(u)) == 1 return u .- mean(u)                 # 1 dimension
-    else                    return u - broadcast(-, u, mean(u)) # 2+ dimensions
+    # 1 dimension
+    if length(size(u)) == 1 return u .- mean(u)
+    # 2+ dimensions 
+    else                    return u .- broadcast(-, u, mean(u, dims=2))
     end
 end
 
@@ -561,7 +563,7 @@ The vector projection of `u` onto the protected characteristic stored in `r`.
 """
 prox(r::OrthogonalReg, u::AbstractArray, alpha::Number) = begin
     # Save the mean for later, after normalisation
-    mean_u = length(size(u)) == 1 ? mean(u) : mean(u, dims=1)
+    mean_u = length(size(u)) == 1 ? mean(u) : mean(u, dims=2)
     normalised_u = normalise(u)
     # Get the orthogonal component of the vector projection (the vector
     # rejection?)
