@@ -773,19 +773,19 @@ mutable struct GeneralFairnessRegulariser<:ColumnRegularizer
                                 # are separated by the target feature(s)
     reg::ColumnRegularizer      # orthogonality, soft orthogonality or hsic
 end
-function GeneralFairnessRegulariser(data::DataFrame, protected::Matrix{Float64}, 
-        targets::TargetDict=TargetDict(), 
-        regtype::DataType;
-        scales::Array{Float64, 1}=ones(Float64, size(protected, 1)),
-        normalised::Bool=false)
-    # Normalise the data if needed (is this even necessary here?)
-    if normalised  reg = regtype(scales, protected)
-    else           reg = regtype(scales, normalise(protected))
-    end
+# function GeneralFairnessRegulariser(data::DataFrame, protected::Matrix{Float64}, 
+#         targets::TargetDict=TargetDict(), 
+#         regtype::DataType;
+#         scales::Array{Float64, 1}=ones(Float64, size(protected, 1)),
+#         normalised::Bool=false)
+#     # Normalise the data if needed (is this even necessary here?)
+#     if normalised  reg = regtype(scales, protected)
+#     else           reg = regtype(scales, normalise(protected))
+#     end
 
-    # Set up groups
-    if isempty(targets)
-        groups = [[i for i=1:size(data, 1)]]
-    else
-    end
-end
+#     # Set up groups
+#     if isempty(targets)
+#         groups = [[i for i=1:size(data, 1)]]
+#     else
+#     end
+# end
