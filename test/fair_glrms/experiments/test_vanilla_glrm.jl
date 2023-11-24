@@ -8,8 +8,8 @@ function test_vanilla_glrm(test_reg::String)
 
     d = args["data"][1]
     if d == "adult" || d == "adult_low_scale"
-        datapath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/adult/adult_sample.data"
-        yamlpath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/parameters/adult.yml"
+        datapath = "data/adult/adult_sample.data"
+        yamlpath = "data/parameters/adult.yml"
     elseif d == "adobservatory"
         datapath = "/path/to/ad_observatory_data"
     else

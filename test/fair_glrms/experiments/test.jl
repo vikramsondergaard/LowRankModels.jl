@@ -40,8 +40,8 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
 
     d = args["data"][1]
     if d == "adult" || d == "adult_low_scale"
-        datapath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/adult/adult_sample.data"
-        yamlpath = "/Users/vikramsondergaard/honours/LowRankModels.jl/data/parameters/$(d).yml"
+        datapath = "data/adult/adult_sample.data"
+        yamlpath = "data/parameters/$(d).yml"
     elseif d == "adobservatory"
         datapath = "/path/to/ad_observatory_data"
     else
