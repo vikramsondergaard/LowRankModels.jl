@@ -20,6 +20,11 @@ function parse_commandline()
             arg_type = Int
             help = "the number of components to which to reduce the data"
             default = 2
+        "-s", "--scales"
+            nargs = '+'
+            arg_type = Float64
+            help = "the scales to use for experiments (if this isn't provided, uses a corresponding YAML file instead)"
+            required = false
     end
     return parse_args(s)
 end
@@ -62,8 +67,6 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
     y_idx = params["target_feature"]
 
     m, n = size(data)
-    X_init = randn(k, m)
-    Y_init = randn(k, embedding_dim(losses))
     groups = partition_groups(data, s, 2)
     weights = [Float64(length(g)) / m for g in groups]
     p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
@@ -72,7 +75,9 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
 
     println("Starting test for $test_reg using $fairness on the $d dataset at date/time $(now())")
 
-    for scale in params["scales"]
+    scales = isnothing(args["scales"]) ? params["scales"] : args["scales"]
+
+    for scale in scales
         println("Fitting fair GLRM with scale=$scale")
         if fairness == "hsic"
             regtype = IndependenceReg

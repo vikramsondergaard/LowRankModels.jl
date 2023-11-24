@@ -101,9 +101,6 @@ function test_pca(test_reg::String)
 
     data = CSV.read(datapath, DataFrame, header=1)
     standardise!(data, length(rl))
-
-    glrm = GLRM(data, losses, ZeroReg(), ZeroReg(), args["k"])
-    loss = objective(glrm, glrmX, glrmY, glrmX' * glrmY)
     
     open(fpath, "w") do file
         write(file, "Loss: $(ch.objective[end])\nFairness penalty (unscaled): $total_orthog")
