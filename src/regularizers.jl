@@ -525,9 +525,16 @@ vectors need to be mean-centred at 0 and be orthogonal.
 """
 normalise(u::AbstractArray) = begin
     # 1 dimension
-    if length(size(u)) == 1 return u .- mean(u)
+    if length(size(u)) == 1
+        μ = mean(u)
+        σ = stdm(u, μ)
+        return (u .- μ) / σ
     # 2+ dimensions 
-    else                    return u .- broadcast(-, u, mean(u, dims=2))
+    else
+        μ = mean(u, dims=2)
+        σ = stdm(u, μ, dims=2)
+        mean_centred = broadcast(-, μ, u)
+        return broadcast(/, σ, mean_centred)
     end
 end
 
@@ -582,11 +589,10 @@ mutable struct SoftOrthogonalReg<:ColumnRegularizer
     scale::Float64
     s::AbstractArray
 end
-SoftOrthogonalReg(s::AbstractArray) = SoftOrthogonalReg(1, s)
+SoftOrthogonalReg(s::AbstractArray) = SoftOrthogonalReg(1, normalise(s))
 evaluate(r::SoftOrthogonalReg, u::AbstractArray) = r.scale * dot(normalise(u), r.s)^2
-prox(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
-    return u - r.scale * alpha * (2 * dot(normalise(u), r.s) * r.s)
-end
+prox(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) =
+    u - r.scale * alpha * (2 * dot(normalise(u), r.s) * r.s)
 prox!(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
     u = prox(r, u, alpha)
     u
@@ -600,17 +606,24 @@ end
 IndependenceReg(s::AbstractArray) = IndependenceReg(1, s, 0.5)
 IndependenceReg(scale::Float64, s::AbstractArray) = IndependenceReg(scale, s, 0.5)
 evaluate(r::IndependenceReg, u::AbstractArray) = begin
-    n = length(u)
-    hsic = hsic_gam(reshape(u, (n, 1)), reshape(r.s, (n, 1)), r.α)
+    if length(size(u)) == 1
+        n = length(u)
+        hsic = hsic_gam(reshape(u, (n, 1)), reshape(r.s, (n, 1)), r.α)
+    else
+        hsic = hsic_gam(u, r.s, r.α)
+    end
     r.scale * hsic
 end
 prox(r::IndependenceReg, u::AbstractArray, alpha::Number) = begin 
-    grad = hsic_grad(reshape(u, (n, 1)), reshape(r.s, (n, 1)))
-    u .- r.scale .* alpha .* grad
+    if length(size(u)) == 1
+        grad = hsic_grad(reshape(u, (n, 1)), reshape(r.s, (n, 1)))
+    else
+        grad = hsic_grad(u, r.s)
+    end
+    u .- (r.scale * alpha) * grad
 end
 prox!(r::IndependenceReg, u::AbstractArray, alpha::Number) = begin
-    n = length(u)
-    u = u .- ((alpha * r.scale) .* hsic_grad(reshape(u, (n, 1)), reshape(r.s, (n, 1))))
+    u = prox(r, u, alpha)
     u
 end
 
@@ -622,9 +635,12 @@ mutable struct SeparationReg<:ColumnRegularizer
     α::Float64
     r::DataType
 end
-SeparationReg(s::AbstractArray, y::AbstractArray, r::DataType) = SeparationReg(1, s, y, bin(y), 0.5, r)
-SeparationReg(scale::Float64, s::AbstractArray, y::AbstractArray, r::DataType) = SeparationReg(scale, s, y, bin(y), 0.5, r)
-SeparationReg(s::AbstractArray, y::AbstractArray, groups::AbstractArray, r::DataType) = SeparationReg(1, s, y, groups, 0.5, r)
+SeparationReg(s::AbstractArray, y::AbstractArray, r::DataType) = 
+    SeparationReg(1, s, y, bin(y), 0.5, r)
+SeparationReg(scale::Float64, s::AbstractArray, y::AbstractArray, r::DataType) = 
+    SeparationReg(scale, s, y, bin(y), 0.5, r)
+SeparationReg(s::AbstractArray, y::AbstractArray, groups::AbstractArray, r::DataType) =
+    SeparationReg(1, s, y, groups, 0.5, r)
 evaluate(r::SeparationReg, u::AbstractArray) = begin
     total_loss = 0.0
     for g in r.groups
@@ -738,8 +754,7 @@ prox(r::Regularizer, u::Number, alpha::Number) = prox(r, [u], alpha)[1]
 # if step size not specified, step size = 1
 prox(r::Regularizer, u) = prox(r, u, 1)
 
-Label::Type = Union{Int64, String}
-TargetDict::Type = Dict{Label, Array{Int64, 1}}
+TargetDict::Type = Dict{String, Array{Int64, 1}}
 """
 This is a regulariser that will attempt to combine the independence and
 separation (and maybe even sufficiency) regularisers and make it possible to
@@ -756,15 +771,21 @@ mutable struct GeneralFairnessRegulariser<:ColumnRegularizer
                                 # be column indices or column labels
     groups::Matrix{Int64}       # The indices of each separate "group": these
                                 # are separated by the target feature(s)
-    regtype::DataType           # orthogonality, soft orthogonality or hsic
+    reg::ColumnRegularizer      # orthogonality, soft orthogonality or hsic
 end
-function GeneralFairnessRegulariser(protected::Matrix{Float64}, 
+function GeneralFairnessRegulariser(data::DataFrame, protected::Matrix{Float64}, 
         targets::TargetDict=TargetDict(), 
         regtype::DataType;
         scales::Array{Float64, 1}=ones(Float64, size(protected, 1)),
         normalised::Bool=false)
+    # Normalise the data if needed (is this even necessary here?)
     if normalised  reg = regtype(scales, protected)
     else           reg = regtype(scales, normalise(protected))
     end
 
+    # Set up groups
+    if isempty(targets)
+        groups = [[i for i=1:size(data, 1)]]
+    else
+    end
 end
