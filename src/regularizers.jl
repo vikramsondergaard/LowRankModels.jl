@@ -635,7 +635,7 @@ mutable struct SeparationReg<:ColumnRegularizer
     α::Float64
     r::DataType
 end
-SeparationReg(s::AbstractArray, y::AbstractArray, r::DataType) = 
+SeparationReg(s::AbstractArray, y::AbstractArray, r::DataType) =
     SeparationReg(1, s, y, bin(y), 0.5, r)
 SeparationReg(scale::Float64, s::AbstractArray, y::AbstractArray, r::DataType) = 
     SeparationReg(scale, s, y, bin(y), 0.5, r)
@@ -754,7 +754,8 @@ prox(r::Regularizer, u::Number, alpha::Number) = prox(r, [u], alpha)[1]
 # if step size not specified, step size = 1
 prox(r::Regularizer, u) = prox(r, u, 1)
 
-TargetDict::Type = Dict{String, Array{Int64, 1}}
+Label::Type = Union{String, Int64}
+TargetDict::Type = Dict{Label, Array{Int64, 1}}
 """
 This is a regulariser that will attempt to combine the independence and
 separation (and maybe even sufficiency) regularisers and make it possible to
@@ -762,30 +763,75 @@ separate the data based on a subset of the possible values of each target
 feature.
 """
 mutable struct GeneralFairnessRegulariser<:ColumnRegularizer
-    scales::Array{Float64, 1}   # The scale for calculating statistical
-                                # dependence wrt each protected characteristic
-    protected::Matrix{Float64}  # The protected characteristic(s): layout is
-                                # m × s (where s is the number of protected
-                                # characteristics)
-    targets::TargetDict         # The target feature(s) - the keys can either
-                                # be column indices or column labels
-    groups::Matrix{Int64}       # The indices of each separate "group": these
-                                # are separated by the target feature(s)
-    reg::ColumnRegularizer      # orthogonality, soft orthogonality or hsic
+    scales::Array{Float64, 1}     # The scale for calculating statistical
+                                  # dependence wrt each protected characteristic
+    protected::Matrix{Float64}    # The protected characteristic(s): layout is
+                                  # m × s (where s is the number of protected
+                                  # characteristics)
+    targets::TargetDict           # The target feature(s) - the keys can either
+                                  # be column indices or column labels
+    groups::Vector{Vector{Int64}} # The indices of each separate "group": these
+                                  # are separated by the target feature(s)
+    reg::ColumnRegularizer        # orthogonality, soft orthogonality or hsic
 end
-# function GeneralFairnessRegulariser(data::DataFrame, protected::Matrix{Float64}, 
-#         targets::TargetDict=TargetDict(), 
-#         regtype::DataType;
-#         scales::Array{Float64, 1}=ones(Float64, size(protected, 1)),
-#         normalised::Bool=false)
-#     # Normalise the data if needed (is this even necessary here?)
-#     if normalised  reg = regtype(scales, protected)
-#     else           reg = regtype(scales, normalise(protected))
-#     end
+function GeneralFairnessRegulariser(data::DataFrame, protected::Matrix{Float64}, 
+        targets::TargetDict=TargetDict(), 
+        regtype::DataType;
+        scales::Array{Float64, 1}=ones(Float64, size(protected, 1)),
+        normalised::Bool=false)
+    # Normalise the data if needed (is this even necessary here?)
+    if normalised  reg = regtype(1.0, protected)
+    else           reg = regtype(1.0, normalise(protected))
+    end
 
-#     # Set up groups
-#     if isempty(targets)
-#         groups = [[i for i=1:size(data, 1)]]
-#     else
-#     end
-# end
+    # Set up groups
+    groups::Vector{Vector{Int64}} = Vector{Vector{Int64}}()
+    if isempty(targets)
+        groups::Vector{Vector{Int64}} = [[i for i=1:size(data, 1)]]
+    else
+        data_copy = copy(data)
+        allowmissing!(data_copy)
+        for (k, v) in targets
+            # https://stackoverflow.com/questions/64957524/how-can-i-obtain-the-complement-of-list-of-indexes-in-julia
+            to_drop = unique(data_copy[!, k])
+            filter!(d -> !(d in v), to_drop)
+            for i=1:size(data_copy, 1)
+                if data_copy[i, k] in to_drop
+                    data_copy[i, k] = missing
+                end
+            end
+        end
+        keyslist = [k for k in keys(targets)]
+        gdf = groupby(data_copy, keyslist, skipmissing=true, sort=true)
+        indices = groupindices(gdf)
+        max_idx = maximum(filter(i -> i !== missing, indices))
+        for _=1:max_idx push!(groups, []) end
+        for (i, idx) in enumerate(indices)  
+            if idx !== missing push!(groups[idx], i) end
+        end
+    end
+    GeneralFairnessRegulariser(scales, protected, targets, groups, reg)
+end
+function evaluate(r::GeneralFairnessRegulariser, u::AbstractArray)
+    total_loss = 0.0
+    for g in r.groups
+        u_g = normalise(u[g])
+        total_loss += evaluate(r.reg, u_g)
+    end
+    dot(r.scales, total_loss)
+end
+function prox(r::GeneralFairnessRegulariser, u::AbstractArray, alpha::Number)
+    grad = zeros(size(u))
+    for g in r.groups
+        u_g = u[g]
+        s_g = normalise(r.s[g])
+        reg = r.r(r.scale, s_g)
+        subgrad = u_g .- prox(reg, u_g, alpha)
+        i = 1
+        for j in g
+            grad[j] += subgrad[i]
+            i += 1
+        end
+    end
+    u .- grad
+end
