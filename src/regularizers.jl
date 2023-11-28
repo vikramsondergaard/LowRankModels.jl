@@ -768,15 +768,13 @@ mutable struct GeneralFairnessRegulariser<:ColumnRegularizer
     protected::Matrix{Float64}    # The protected characteristic(s): layout is
                                   # m × s (where s is the number of protected
                                   # characteristics)
-    targets::TargetDict           # The target feature(s) - the keys can either
-                                  # be column indices or column labels
     groups::Vector{Vector{Int64}} # The indices of each separate "group": these
                                   # are separated by the target feature(s)
     reg::ColumnRegularizer        # orthogonality, soft orthogonality or hsic
 end
-function GeneralFairnessRegulariser(data::DataFrame, protected::Matrix{Float64}, 
-        targets::TargetDict=TargetDict(), 
-        regtype::DataType;
+function GeneralFairnessRegulariser(data::DataFrame,
+        protected::Matrix{Float64}, regtype::DataType,
+        targets::TargetDict=TargetDict();
         scales::Array{Float64, 1}=ones(Float64, size(protected, 1)),
         normalised::Bool=false)
     # Normalise the data if needed (is this even necessary here?)
@@ -787,7 +785,7 @@ function GeneralFairnessRegulariser(data::DataFrame, protected::Matrix{Float64},
     # Set up groups
     groups::Vector{Vector{Int64}} = Vector{Vector{Int64}}()
     if isempty(targets)
-        groups::Vector{Vector{Int64}} = [[i for i=1:size(data, 1)]]
+        groups = [[i for i=1:size(data, 1)]]
     else
         data_copy = copy(data)
         allowmissing!(data_copy)
@@ -810,7 +808,7 @@ function GeneralFairnessRegulariser(data::DataFrame, protected::Matrix{Float64},
             if idx !== missing push!(groups[idx], i) end
         end
     end
-    GeneralFairnessRegulariser(scales, protected, targets, groups, reg)
+    GeneralFairnessRegulariser(scales, protected, groups, reg)
 end
 function evaluate(r::GeneralFairnessRegulariser, u::AbstractArray)
     total_loss = 0.0
@@ -824,9 +822,7 @@ function prox(r::GeneralFairnessRegulariser, u::AbstractArray, alpha::Number)
     grad = zeros(size(u))
     for g in r.groups
         u_g = u[g]
-        s_g = normalise(r.s[g])
-        reg = r.r(r.scale, s_g)
-        subgrad = u_g .- prox(reg, u_g, alpha)
+        subgrad = u_g .- prox(r.reg, u_g, alpha)
         i = 1
         for j in g
             grad[j] += subgrad[i]
