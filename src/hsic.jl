@@ -68,15 +68,16 @@ function get_width(M::AbstractArray)
     end
 end
 
-function hsic_gam(X::AbstractArray, Y::AbstractArray, alph::Float64=0.5)
+function hsic_gam(X::AbstractArray, Y::AbstractArray, alph::Float64=0.5;
+        gpu::Bool=true)
     n = size(X, 1)
     if n == 1 return 0 end
     width_x = get_width(X)
     width_y = get_width(Y)
     if width_x == 0 || width_y == 0 return 0 end
 
-    bone = ones(Float64, n, 1)
-    
+    # bone = ones(Float64, n, 1)
+        
     H = Matrix(I, n, n) - ones(Float64, n, n) ./ n
 
     K = rbf_dot(X, X, width_x)
@@ -86,32 +87,6 @@ function hsic_gam(X::AbstractArray, Y::AbstractArray, alph::Float64=0.5)
     Lc = (H * L) * H
 
     test_stat = sum(Kc' .* Lc) / n
-
-    # var_HSIC = (Kc .* Lc ./ 6) .^ 2
-    # var_HSIC = (sum(var_HSIC) - tr(var_HSIC)) / n / (n - 1)
-    # var_HSIC = var_HSIC * 72 * (n - 4) * (n - 5) / n / (n - 1) / (n - 2) / (n - 3)
-
-    # K = K .- Diagonal(K)
-    # L = L .- Diagonal(L)
-
-    # mu_x = ((bone' * K) * bone) / n / (n - 1)
-    # mu_y = ((bone' * L) * bone) / n / (n - 1)
-
-    # m_HSIC = (1 .+ mu_x .* mu_y .- mu_x .- mu_y) ./ n
-
-    # al = m_HSIC^2 / var_HSIC
-    # bet = var_HSIC * n ./ m_HSIC
-
-    # println("Size of al is $(size(al))")
-    # println("al is $(al[1])")
-    # println("Size of bet is $(size(bet))")
-    # println("bet is $(bet[1])")
-
-    # if size(al) == (1, 1) && size(bet) == (1, 1)
-    #     thresh = quantile(Gamma(al[1], bet[1]), 1 - alph)
-    # else
-    #     thresh = quantile(Gamma(al, bet), 1 - alph)
-    # end
 
     test_stat
 end

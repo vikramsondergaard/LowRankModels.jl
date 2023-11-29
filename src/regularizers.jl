@@ -510,10 +510,8 @@ Calculate the vector projection of each column of `X` onto `s`.
 - `X`: The vector(s) that are being projected onto `s`.
 """
 project(s::AbstractArray, X::AbstractArray) = begin
-    if length(size(X)) == 1 return (dot(X, s) / dot(s, s)) * s     end # 1 dimension
-    _, n = size(X)
-    if n == 1               return dot(X[:, 1], s) / dot(s, s) * s end
-    return [dot(X[:, i], s) / dot(s, s) * s for i=1:n]           # 2+ dimensions
+    if size(X, 2) == 1 return dot(X[:, 1], s) / dot(s, s) * s end # 1 dimension   
+    return [dot(X[:, i], s) / dot(s, s) * s for i=1:n]            # 2+ dimensions
 end
 
 """
@@ -590,9 +588,9 @@ mutable struct SoftOrthogonalReg<:ColumnRegularizer
     s::AbstractArray
 end
 SoftOrthogonalReg(s::AbstractArray) = SoftOrthogonalReg(1, normalise(s))
-evaluate(r::SoftOrthogonalReg, u::AbstractArray) = r.scale * dot(normalise(u), r.s)^2
+evaluate(r::SoftOrthogonalReg, u::AbstractArray) = r.scale * sum(dot(normalise(u), r.s).^2)
 prox(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) =
-    u - r.scale * alpha * (2 * dot(normalise(u), r.s) * r.s)
+    u - r.scale * alpha * (2 * sum(dot(normalise(u), r.s)) * r.s)
 prox!(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
     u = prox(r, u, alpha)
     u
@@ -830,4 +828,8 @@ function prox(r::GeneralFairnessRegulariser, u::AbstractArray, alpha::Number)
         end
     end
     u .- grad
+end
+function prox!(r::GeneralFairnessRegulariser, u::AbstractArray, alpha::Number)
+    u = prox(r, u, alpha)
+    u
 end
