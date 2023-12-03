@@ -1,4 +1,4 @@
-using LowRankModels, Statistics, Random, CSV, DataFrames, Tables, ArgParse, Dates
+using LowRankModels, Statistics, Random, CSV, DataFrames, Tables, ArgParse, Dates, CUDA
 import YAML
 
 function test_vanilla_glrm(test_reg::String)
@@ -30,8 +30,19 @@ function test_vanilla_glrm(test_reg::String)
     y_idx = params["target_feature"]
     
     p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
+    # X_init = randn(Float64, k, size(data, 1))
+    X_init = randn(Float64, k, size(data, 1))
+    Y_init = randn(Float64, k, embedding_dim(losses))
 
-    glrm = GLRM(data, losses, ZeroReg(), ZeroReg(), k)
+    # if args["gpu"]
+    #     X_init = CUDA.randn(Float64, k, size(data, 1))
+    #     Y_init = CUDA.randn(Float64, k, embedding_dim(losses))
+    # else
+    #     X_init = randn(Float64, k, size(data, 1))
+    #     Y_init = randn(Float64, k, size(data, 2))
+    # end
+
+    glrm = GLRM(data, losses, ZeroReg(), ZeroReg(), k; X=X_init, Y=Y_init)
     glrmX, glrmY, ch = fit!(glrm, params=p, verbose=true)
     println("successfully fit vanilla GLRM")
 
@@ -43,7 +54,7 @@ function test_vanilla_glrm(test_reg::String)
     fpath = joinpath(dir, fname)
 
     if fairness == "hsic"
-        regtype = IndependenceReg
+        regtype = HSICReg
     elseif fairness == "orthog"
         regtype = OrthogonalReg
     elseif fairness == "softorthog"

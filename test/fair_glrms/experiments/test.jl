@@ -1,4 +1,4 @@
-using LowRankModels, Statistics, Random, CSV, DataFrames, Tables, ArgParse, Dates
+using LowRankModels, Statistics, Random, CSV, DataFrames, Tables, ArgParse, Dates, CUDA
 import YAML
 
 export normalise, parse_commandline, test, standardise!
@@ -25,6 +25,10 @@ function parse_commandline()
             arg_type = Float64
             help = "the scales to use for experiments (if this isn't provided, uses a corresponding YAML file instead)"
             required = false
+        "-g", "--gpu"
+            nargs = 0
+            help = "whether to use the GPU or not (will cause errors if you don't have a CUDA driver)"
+            action = :store_true
     end
     return parse_args(s)
 end
@@ -40,6 +44,7 @@ end
 function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
     args = parse_commandline()
     println(args)
+    println("Number of threads is $(Threads.nthreads())")
 
     Random.seed!(1)
 
@@ -75,12 +80,12 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
 
     println("Starting test for $test_reg using $fairness on the $d dataset at date/time $(now())")
 
-    scales = isnothing(args["scales"]) ? params["scales"] : args["scales"]
+    scales = isempty(args["scales"]) ? params["scales"] : args["scales"]
 
     for scale in scales
         println("Fitting fair GLRM with scale=$scale")
         if fairness == "hsic"
-            regtype = IndependenceReg
+            regtype = HSICReg
         elseif fairness == "orthog"
             regtype = OrthogonalReg
         elseif fairness == "softorthog"
@@ -101,10 +106,21 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
             error("Regulariser $test_reg not implemented yet!")
             regulariser = nothing
         end
+
+        # X_init = copy(glrmX)
+        # Y_init = copy(glrmY)
+
+        if args["gpu"]
+            X_init = CuArray(glrmX)
+            Y_init = CuArray(glrmY)
+        else
+            X_init = copy(glrmX)
+            Y_init = copy(glrmY)
+        end
             
         fglrm = FairGLRM(data, losses, ZeroReg(), ZeroReg(), regulariser, ZeroColReg(), k, s,
             WeightedLogSumExponentialLoss(10^(-6), weights),
-            X=copy(glrmX), Y=copy(glrmY), Z=groups)
+            X=X_init, Y=Y_init, Z=groups)
             
         fglrmX, fglrmY, fair_ch = fit!(fglrm, params=p, verbose=true)
         reconstructed = fglrmX' * fglrmY

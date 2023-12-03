@@ -76,7 +76,7 @@ function test_pca(test_reg::String)
     fpath = joinpath(dir, fname)
 
     if fairness == "hsic"
-        regtype = IndependenceReg
+        regtype = HSICReg
     elseif fairness == "orthog"
         regtype = OrthogonalReg
     elseif fairness == "softorthog"
