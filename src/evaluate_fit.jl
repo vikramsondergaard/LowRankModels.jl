@@ -1,4 +1,4 @@
-export objective, error_metric, impute, impute_missing
+export objective, objective!, error_metric, impute, impute_missing
 
 ### OBJECTIVE FUNCTION EVALUATION FOR MPCA
 function objective(glrm::GLRM, X::Array{Float64,2}, Y::Array{Float64,2},
@@ -20,6 +20,30 @@ function objective(glrm::GLRM, X::Array{Float64,2}, Y::Array{Float64,2},
         err += calc_penalty(glrm,X,Y; yidxs = yidxs)
     end
     return err
+end
+
+function objective!(glrm::GLRM, X::CuDeviceMatrix{Float64,1}, Y::CuDeviceMatrix{Float64,1},
+        XY::CuDeviceMatrix{Float64,1}, err::Float64;
+        yidxs = get_yidxs(glrm.losses), # mapping from columns of A to columns of Y; by default, the identity
+        include_regularization=true)
+    m,n = size(glrm.A)
+    @assert(size(XY)==(m,yidxs[end][end]))
+    @assert(size(Y)==(glrm.k,yidxs[end][end]))
+    @assert(size(X)==(glrm.k,m))
+    err = 0.0
+    indexx = threadIdx().x
+    stridex = blockDim().x
+    indexy = threadIdx().y
+    stridey = blockDim().y
+    for j = indexx:stridex:n
+        for i = indexy:stridey:length(glrm.observed_examples[j])
+            err += evaluate(glrm.losses[j], XY[glrm.observed_examples[j][i],yidxs[j]], glrm.A[glrm.observed_examples[j][i],j])
+        end
+    end
+    # add regularization penalty
+    if include_regularization
+        err += calc_penalty(glrm,X,Y; yidxs = yidxs)
+    end
 end
 
 function objective(fglrm::FairGLRM, X::Array{Float64,2}, Y::Array{Float64,2},
@@ -62,8 +86,8 @@ function row_objective(glrm::AbstractGLRM, i::Int, x::AbstractArray, Y::Array{Fl
 end
 
 function row_objective(fglrm::FairGLRM, i::Int, X::Array{Float64, 2}, Y::Array{Float64,2} = fglrm.Y;
-                       yidxs = get_yidxs(fglrm.losses), # mapping from columns of A to columns of Y; by default, the identity
-                       include_regularization=true)
+        yidxs = get_yidxs(fglrm.losses), # mapping from columns of A to columns of Y; by default, the identity
+        include_regularization=true)
     x = X[:, i]
     XY = x'*Y
     # Use the provided group functional to evaluate the total loss
@@ -75,7 +99,7 @@ function row_objective(fglrm::FairGLRM, i::Int, X::Array{Float64, 2}, Y::Array{F
     # add regularization penalty
     if include_regularization
         err += evaluate(fglrm.rx[i], x)
-        err += sum(evaluate(fglrm.rkx[k], X[k, :]) for k=1:fglrm.k) / size(X, 2)
+        err += sum(evaluate(fglrm.rkx[k], X[k, :], i) for k=1:fglrm.k) / size(X, 2)
     end
     return err
 end
