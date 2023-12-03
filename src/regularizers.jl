@@ -18,7 +18,7 @@ export Regularizer, ProductRegularizer, ColumnRegularizer, DependenceMeasure, # 
        RemQuadReg,
        ZeroColReg,
        OrthogonalReg, SoftOrthogonalReg, # linearly independent regularisers
-       IndependenceReg, SeparationReg, SufficiencyReg, # statistically independent regularisers
+       HSICReg, SeparationReg, SufficiencyReg, # statistically independent regularisers
        # methods on regularizers
        prox!, prox,
        # utilities
@@ -596,31 +596,55 @@ prox!(r::SoftOrthogonalReg, u::AbstractArray, alpha::Number) = begin
     u
 end
 
-mutable struct IndependenceReg<:ColumnRegularizer
+mutable struct HSICReg<:ColumnRegularizer
     scale::Float64
     s::AbstractArray
     α::Float64
+    hsic::HSIC
 end
-IndependenceReg(s::AbstractArray) = IndependenceReg(1, s, 0.5)
-IndependenceReg(scale::Float64, s::AbstractArray) = IndependenceReg(scale, s, 0.5)
-evaluate(r::IndependenceReg, u::AbstractArray) = begin
+HSICReg(s::AbstractArray) = begin
+    if length(size(s)) == 1
+        new_s = CuArray(reshape(s, (length(s), 1)))
+    else
+        new_s = CuArray(s)
+    end
+    HSICReg(1, new_s, 0.5, HSIC(new_s))
+end
+HSICReg(scale::Float64, s::AbstractArray) = begin
+    if length(size(s)) == 1
+        new_s = CuArray(reshape(s, (length(s), 1)))
+    else
+        new_s = CuArray(s)
+    end
+    HSICReg(scale, new_s, 0.5, HSIC(new_s))
+end
+evaluate(r::HSICReg, u::AbstractArray) = begin
     if length(size(u)) == 1
         n = length(u)
-        hsic = hsic_gam(reshape(u, (n, 1)), reshape(r.s, (n, 1)), r.α)
+        hsic = hsic_gam!(r.hsic, CuArray(reshape(u, (n, 1))))
     else
-        hsic = hsic_gam(u, r.s, r.α)
+        hsic = hsic_gam!(r.hsic, CuArray(u))
     end
     r.scale * hsic
 end
-prox(r::IndependenceReg, u::AbstractArray, alpha::Number) = begin 
+evaluate(r::HSICReg, u::AbstractArray, e::Int) = begin
     if length(size(u)) == 1
-        grad = hsic_grad(reshape(u, (n, 1)), reshape(r.s, (n, 1)))
+        n = length(u)
+        hsic = hsic_gam!(r.hsic, CuArray(reshape(u, (n, 1))), e)
     else
-        grad = hsic_grad(u, r.s)
+        hsic = hsic_gam!(r.hsic, CuArray(u), e)
+    end
+    r.scale * hsic
+end
+prox(r::HSICReg, u::AbstractArray, alpha::Number) = begin 
+    if length(size(u)) == 1
+        grad = CUDA.@profile hsic_grad(CuArray(reshape(u, (n, 1))), r.s)
+    else
+        grad = CUDA.@profile hsic_grad(CuArray(u), r.s)
     end
     u .- (r.scale * alpha) * grad
 end
-prox!(r::IndependenceReg, u::AbstractArray, alpha::Number) = begin
+prox!(r::HSICReg, u::AbstractArray, alpha::Number) = begin
     u = prox(r, u, alpha)
     u
 end
