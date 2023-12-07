@@ -137,7 +137,7 @@ function hsic_grad!(hsic::HSIC, X::AbstractArray)
     M = broadcast(-, X, X')
 
     Km = K .* M # Hadamard product
-    Kc = hsic.HLH * Km
+    Kc = Km * hsic.HLH
 
     trace = 2 * reduce(+, diag(Kc)) / n^2 / width_x^2
     return trace
