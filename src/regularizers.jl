@@ -637,10 +637,11 @@ evaluate(r::HSICReg, u::AbstractArray, e::Int) = begin
     r.scale * hsic
 end
 prox(r::HSICReg, u::AbstractArray, alpha::Number) = begin 
+    n = size(u, 1)
     if length(size(u)) == 1
-        grad = CUDA.@profile hsic_grad(CuArray(reshape(u, (n, 1))), r.s)
+        grad = hsic_grad!(r.hsic, CuArray(reshape(u, (n, 1))))
     else
-        grad = CUDA.@profile hsic_grad(CuArray(u), r.s)
+        grad = hsic_grad!(r.hsic, CuArray(u))
     end
     u .- (r.scale * alpha) * grad
 end
