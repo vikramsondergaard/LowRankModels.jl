@@ -245,9 +245,10 @@ end
 ### FITTING
 function fit!(glrm::FairGLRM, params::ProxGradParams;
         ch::ConvergenceHistory=ConvergenceHistory("ProxGradGLRM"),
-        verbose=true,
+        verbose=true, checkpoint=true,
         kwargs...)
     println("Starting single-threaded proxgrad")
+    println("kwargs are: $kwargs")
     ### initialization
     A = glrm.A # rename these for easier local access
     losses = glrm.losses
@@ -255,11 +256,6 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
     ry = glrm.ry
     rkx = glrm.rkx # the component-wise regulariser over X
     rky = glrm.rky # the component-wise regulariser over Y
-    X = glrm.X; Y = glrm.Y
-    # check that we didn't initialize to zero (otherwise we will never move)
-    if norm(Y) == 0
-        Y = .1*randn(k,d)
-    end
     k = glrm.k
     m,n = size(A)
 
@@ -268,28 +264,6 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
 
     # find spans of loss functions (for multidimensional losses)
     yidxs = get_yidxs(losses)
-    d = maximum(yidxs[end])
-    # check Y is the right size
-    if d != size(Y,2)
-        @warn("The width of Y should match the embedding dimension of the losses.
-        Instead, embedding_dim(glrm.losses) = $(embedding_dim(glrm.losses))
-        and size(glrm.Y, 2) = $(size(glrm.Y, 2)).
-        Reinitializing Y as randn(glrm.k, embedding_dim(glrm.losses).")
-        # Please modify Y or the embedding dimension of the losses to match,
-        # eg, by setting `glrm.Y = randn(glrm.k, embedding_dim(glrm.losses))`")
-        glrm.Y = randn(glrm.k, d)
-    end
-
-    gpu = haskey(kwargs, :gpu) && kwargs[:gpu]
-
-    if gpu
-        XY = CuArray{Float64}(undef, (m, d))
-        XY .*= 0.0
-        XY .+= X' * Y
-    else
-        XY = Array{Float64}(undef, (m, d))
-        gemm!('T','N',1.0,X,Y,0.0,XY) # XY = X' * Y initial calculation
-    end
 
     # step size (will be scaled below to ensure it never exceeds 1/\|g\|_2 or so for any subproblem)
     alpharow = params.stepsize*ones(m)
@@ -310,7 +284,69 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
 
     # alternating updates of X and Y
     if verbose println("Fitting GLRM") end
-    update_ch!(ch, 0, objective(glrm, X, Y, XY, yidxs=yidxs))
+    d = maximum(yidxs[end])
+    chk_path = "data/checkpoints/$(ch.name)"
+    if isdir(chk_path)
+        iter_dirs = readdir(chk_path, join=true)
+        latest_cp = filter(d -> occursin("iter", d), iter_dirs)[end]
+        X = load(joinpath(latest_cp, "X.jld"), "X")
+        Y = load(joinpath(latest_cp, "Y.jld"), "Y")
+
+        if d != size(Y,2)
+            @warn("The width of Y should match the embedding dimension of the losses.
+            Instead, embedding_dim(glrm.losses) = $(embedding_dim(glrm.losses))
+            and size(glrm.Y, 2) = $(size(glrm.Y, 2)).
+            Reinitializing Y as randn(glrm.k, embedding_dim(glrm.losses).")
+            # Please modify Y or the embedding dimension of the losses to match,
+            # eg, by setting `glrm.Y = randn(glrm.k, embedding_dim(glrm.losses))`")
+            glrm.Y = randn(glrm.k, d)
+        end
+
+        XY = load(joinpath(latest_cp, "XY.jld"), "XY")
+        
+        obj = objective(glrm, X, Y, XY, yidxs=yidxs)
+        objectives = load(joinpath(chk_path, "objective.jld"), "objective")
+        times = load(joinpath(chk_path, "times.jld"), "times")
+        start = length(objectives)
+        ch = ConvergenceHistory(ch.name, objectives, zeros(start),
+            zeros(start), zeros(start), times, zeros(start), 0)
+    else
+        X = glrm.X; Y = glrm.Y
+
+        if d != size(Y,2)
+            @warn("The width of Y should match the embedding dimension of the losses.
+            Instead, embedding_dim(glrm.losses) = $(embedding_dim(glrm.losses))
+            and size(glrm.Y, 2) = $(size(glrm.Y, 2)).
+            Reinitializing Y as randn(glrm.k, embedding_dim(glrm.losses).")
+            # Please modify Y or the embedding dimension of the losses to match,
+            # eg, by setting `glrm.Y = randn(glrm.k, embedding_dim(glrm.losses))`")
+            glrm.Y = randn(glrm.k, d)
+        end
+
+        XY = Array{Float64}(undef, (m, d))
+        gemm!('T','N',1.0,X,Y,0.0,XY) # XY = X' * Y initial calculation
+        update_ch!(ch, 0, objective(glrm, X, Y, XY, yidxs=yidxs))
+        start = 1
+
+        # check that we didn't initialize to zero (otherwise we will never move)
+        if norm(Y) == 0
+            Y = .1*randn(k,d)
+        end
+
+        if checkpoint
+            if verbose println("Saving checkpoints to: $chk_path") end
+            mkpath(chk_path)
+            save(joinpath(chk_path, "objective.jld"), "objective", ch.objective)
+            save(joinpath(chk_path, "times.jld"), "times", zeros(1))
+
+            obj_dir = joinpath(chk_path, "iter_0")
+            mkpath(obj_dir)
+            save(joinpath(obj_dir, "X.jld"), "X", X)
+            save(joinpath(obj_dir, "Y.jld"), "Y", Y)
+            save(joinpath(obj_dir, "XY.jld"), "XY", XY)
+        end
+    end
+
     t = time()
     # gradient wrt columns of X
     # g = zeros(k)
@@ -349,7 +385,7 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
     newvf = [view(newY,:,yidxs[f]) for f=1:n]
     newvk = [view(newX, e, :) for e=1:k]
 
-    for i=1:params.max_iter
+    for i=start:params.max_iter
         println("Starting iteration $(i) of single-threaded proxgrad")
         # STEP 1: X update
         # XY = X' * Y was computed above
@@ -391,7 +427,7 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
                     axpy!(-stepsize,g,newve[e])
                     ## prox step: Xᵢ = prox_rx(Xᵢ, α/l)
                     prox!(rx[e],newve[e],stepsize)
-                    if row_objective(glrm, e, X, newX) < obj_by_row[e]
+                    if row_objective(glrm, e, newX) < obj_by_row[e]
                         copyto!(ve[e], newve[e])
                         alpharow[e] *= 1.05
                         break
@@ -488,6 +524,15 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
        #  obj = sum(obj_by_col)
         t = time() - t
         update_ch!(ch, t, obj)
+
+        save(joinpath(chk_path, "objective.jld"), "objective", ch.objective)
+        save(joinpath(chk_path, "times.jld"), "times", zeros(1))
+        obj_dir = joinpath(chk_path, "iter_$i")
+        mkpath(obj_dir)
+        save(joinpath(obj_dir, "X.jld"), "X", X)
+        save(joinpath(obj_dir, "Y.jld"), "Y", Y)
+        save(joinpath(obj_dir, "XY.jld"), "XY", XY)
+
         t = time()
         # STEP 4: Check stopping criterion
         obj_decrease = ch.objective[end-1] - obj
