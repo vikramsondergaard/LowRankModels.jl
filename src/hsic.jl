@@ -29,20 +29,18 @@ testStat	test statistics
 thresh		test threshold for level alpha test
 """
 
-mutable struct HSIC
-    hsic::Float64
-    HLH::CuArray{Float64, 2}
-    K::CuArray{Float64, 2}
-    X::CuArray{Float64, 2}
+struct HSIC
+    HLH::AbstractArray{Float32, 2}
 end
-HSIC(Y::AbstractArray{Float64, 2}) = begin
-    n, dim_y = size(Y)
-    H = CuMatrix(I, n, n) .- CUDA.ones(Float64, n, n) ./ n
+function get_hsic(Y::AbstractArray{Float32})
+    n = size(Y, 1)
+    H = CuMatrix(I, n, n) .- CUDA.ones(Float32, n, n) ./ n
     width_y = get_width(Y)
     L = rbf_dot(Y, Y, width_y)
     HLH = H * L * H
-    HSIC(0.0, HLH, CUDA.zeros(n, n), CUDA.zeros(n, 1))
+    HSIC(HLH)
 end
+get_hsic(Y::AbstractArray{Float64}) = get_hsic(Float32.(Y))
 
 function rbf_dot(pattern1::AbstractArray, pattern2::AbstractArray, deg::Float64)
     # Get the size of both matrices for the RBF
@@ -53,11 +51,7 @@ function rbf_dot(pattern1::AbstractArray, pattern2::AbstractArray, deg::Float64)
     G = mapreduce(identity, +, pattern1 .* pattern1; dims=2)
     H = mapreduce(identity, +, pattern2 .* pattern2; dims=2)
 
-    # 
-    Q = repeat(G, outer=[1, size2])
-    R = repeat(H', outer=[size1, 1])
-
-    H = Q .+ R .- (2 .* (pattern1 * pattern2'))
+    H = (G .+ H') .- (2 .* (pattern1 * pattern2'))
 
     H = map(exp, -H ./ (2 * deg^2))
 
@@ -65,65 +59,57 @@ function rbf_dot(pattern1::AbstractArray, pattern2::AbstractArray, deg::Float64)
 end
 
 function get_width(M::AbstractArray)
-    n = size(M, 1)
-
     G = mapreduce(identity, +, M .* M; dims=2)
-    Q = repeat(G, outer=[1, n])
-    R = repeat(G', outer=[n, 1])
 
-    dists = Q .+ R .- (2 .* (M * M'))
+    dists = (G .+ G') .- (2 .* (M * M'))
     dists .-= tril(dists)
-    dists = reshape(dists, (n^2, 1))
-    filt_dists = filter(d -> d > 0, dists)
+    dists = filter(d -> d > 0, dists)
 
-    if isempty(filt_dists) 
-        return 0 
-    else 
-        return sqrt(0.5 * median(filt_dists)) 
+    if isempty(dists)
+        return 0
+    else
+        return sqrt(0.5 * median(dists))
     end
 end
 
 function hsic_gam!(hsic::HSIC, X::AbstractArray;
         alph::Float64=0.5)
     n = size(X, 1)
-    if n == 1 return 0 end
+    # if n == 1 return 0 end
     width_x = get_width(X)
-    if width_x == 0 return 0 end
+    # if width_x == 0 return 0 end
 
     K = rbf_dot(X, X, width_x)
-    hsic.K = K
     hsic_mat = K * hsic.HLH
 
     test_stat = reduce(+, diag(hsic_mat))
 
-    hsic.hsic = test_stat
-
     test_stat / n^2
 end
 
-function hsic_gam!(hsic::HSIC, X::AbstractArray, e::Int)
-    # Get σ to get the width of the newly changed distribution
-    n = size(X, 1)
-    width_x = get_width(X)
-    # The new RBF only differs from the old RBF for the changed value e: so we
-    # only need a vector, not a matrix
-    K = rbf_dot(X, X, width_x)
-    # Old RBF needs to be taken for calculating difference
-    old_rbf = hsic.K[e, :]
-    new_rbf = K[e, :]
-    rbf_diff = new_rbf - old_rbf
-    a = CuArray([i == e for i=1:n])
-    A = broadcast(|, a, a')
-    HLH = hsic.HLH .* A
-    # These parts of the trace are the only differences from the old HSIC
-    # Note: this has a double-up at (e, e)
-    trace = reduce(+, broadcast(*, HLH, rbf_diff)) / n^2
-    # Update the trace value so I can get it back later
-    hsic.hsic += trace
-    hsic.X = X
-    hsic.K = K
-    hsic.hsic
-end
+# function hsic_gam!(hsic::HSIC, X::AbstractArray, e::Int)
+#     # Get σ to get the width of the newly changed distribution
+#     n = size(X, 1)
+#     width_x = get_width(X)
+#     # The new RBF only differs from the old RBF for the changed value e: so we
+#     # only need a vector, not a matrix
+#     K = rbf_dot(X, X, width_x)
+#     # Old RBF needs to be taken for calculating difference
+#     old_rbf = hsic.K[e, :]
+#     new_rbf = K[e, :]
+#     rbf_diff = new_rbf - old_rbf
+#     a = CuArray([i == e for i=1:n])
+#     A = broadcast(|, a, a')
+#     HLH = hsic.HLH .* A
+#     # These parts of the trace are the only differences from the old HSIC
+#     # Note: this has a double-up at (e, e)
+#     trace = reduce(+, broadcast(*, HLH, rbf_diff)) / n^2
+#     # Update the trace value so I can get it back later
+#     hsic.hsic += trace
+#     hsic.X = X
+#     hsic.K = K
+#     hsic.hsic
+# end
 
 function hsic_grad!(hsic::HSIC, X::AbstractArray)
     n = size(X, 1)
@@ -132,11 +118,7 @@ function hsic_grad!(hsic::HSIC, X::AbstractArray)
     width_x = get_width(X)
     if width_x == 0 return zeros(n) end
 
-    K = rbf_dot(X, X, width_x)
-
-    M = broadcast(-, X, X')
-
-    Km = K .* M # Hadamard product
+    Km = rbf_dot(X, X, width_x) .* broadcast(-, X, X') # Hadamard product
     Kc = Km * hsic.HLH
 
     trace = 2 * reduce(+, diag(Kc)) / n^2 / width_x^2

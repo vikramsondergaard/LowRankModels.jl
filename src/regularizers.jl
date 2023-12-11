@@ -603,46 +603,40 @@ mutable struct HSICReg<:ColumnRegularizer
     hsic::HSIC
 end
 HSICReg(s::AbstractArray) = begin
-    if length(size(s)) == 1
-        new_s = CuArray(reshape(s, (length(s), 1)))
-    else
-        new_s = CuArray(s)
-    end
-    HSICReg(1, new_s, 0.5, HSIC(new_s))
+    new_s = CuArray(s)
+    HSICReg(1, new_s, 0.5, get_hsic(new_s))
 end
 HSICReg(scale::Float64, s::AbstractArray) = begin
-    if length(size(s)) == 1
-        new_s = CuArray(reshape(s, (length(s), 1)))
-    else
-        new_s = CuArray(s)
-    end
-    HSICReg(scale, new_s, 0.5, HSIC(new_s))
+    new_s = CuArray(s)
+    HSICReg(scale, new_s, 0.5, get_hsic(new_s))
 end
 evaluate(r::HSICReg, u::AbstractArray) = begin
-    if length(size(u)) == 1
-        n = length(u)
-        hsic = hsic_gam!(r.hsic, CuArray(reshape(u, (n, 1))))
-    else
-        hsic = hsic_gam!(r.hsic, CuArray(u))
-    end
+    # if length(size(u)) == 1
+    #     n = length(u)
+    #     hsic = hsic_gam!(r.hsic, CuArray(u))
+    # else
+    #     hsic = hsic_gam!(r.hsic, CuArray(u))
+    # end
+    hsic = hsic_gam!(r.hsic, CuArray(u))
     r.scale * hsic
 end
-evaluate(r::HSICReg, u::AbstractArray, e::Int) = begin
-    if length(size(u)) == 1
-        n = length(u)
-        hsic = hsic_gam!(r.hsic, CuArray(reshape(u, (n, 1))), e)
-    else
-        hsic = hsic_gam!(r.hsic, CuArray(u), e)
-    end
-    r.scale * hsic
-end
+# evaluate(r::HSICReg, u::AbstractArray, e::Int) = begin
+#     if length(size(u)) == 1
+#         n = length(u)
+#         hsic = hsic_gam!(r.hsic, CuArray(reshape(u, (n, 1))), e)
+#     else
+#         hsic = hsic_gam!(r.hsic, CuArray(u), e)
+#     end
+#     r.scale * hsic
+# end
 prox(r::HSICReg, u::AbstractArray, alpha::Number) = begin 
-    n = size(u, 1)
-    if length(size(u)) == 1
-        grad = hsic_grad!(r.hsic, CuArray(reshape(u, (n, 1))))
-    else
-        grad = hsic_grad!(r.hsic, CuArray(u))
-    end
+    # n = size(u, 1)
+    # if length(size(u)) == 1
+    #     grad = hsic_grad!(r.hsic, CuArray(reshape(u, (n, 1))))
+    # else
+    #     grad = hsic_grad!(r.hsic, CuArray(u))
+    # end
+    grad = hsic_grad!(r.hsic, CuArray(u))
     u .- (r.scale * alpha) * grad
 end
 prox!(r::HSICReg, u::AbstractArray, alpha::Number) = begin

@@ -1,4 +1,4 @@
-using LowRankModels, Statistics, Random, CSV, DataFrames, Tables, ArgParse, Dates, CUDA
+using LowRankModels, Statistics, Random, CSV, DataFrames, Tables, ArgParse, Dates, CUDA, Profile
 import YAML
 
 export normalise, parse_commandline, test, standardise!
@@ -121,8 +121,9 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
         fglrm = FairGLRM(data, losses, ZeroReg(), ZeroReg(), regulariser, ZeroColReg(), k, s,
             WeightedLogSumExponentialLoss(10^(-6), weights),
             X=X_init, Y=Y_init, Z=groups)
-            
-        fglrmX, fglrmY, fair_ch = fit!(fglrm, params=p, verbose=true)
+
+        ch = ConvergenceHistory("FairGLRM-$(d)-$(test_reg)-$(fairness)-$(relative_scale)")    
+        fglrmX, fglrmY, fair_ch = fit!(fglrm, params=p, ch=ch, verbose=true, checkpoint=true)
         reconstructed = fglrmX' * fglrmY
         fname = "projected_data.csv"
         dir = "data/results/$d/$(args["k"])_components/$test_reg/$(fairness)/scale_$scale"

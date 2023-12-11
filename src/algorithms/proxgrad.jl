@@ -1,3 +1,4 @@
+using Profile
 ### Proximal gradient method
 export ProxGradParams, fit!
 
@@ -400,46 +401,50 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
             println("Starting X iteration $(inneri) of single-threaded proxgrad")
             refresh = true # don't need to re-compute group-wise losses every single time for group functionals
             for e=1:m # for every example x_e == ve[e]
-                fill!(g, 0.) # reset gradient to 0
+                @time (
+                fill!(g, 0.); # reset gradient to 0
                 # compute gradient of L with respect to Xᵢ as follows:
                 # ∇{Xᵢ}L = Σⱼ dLⱼ(XᵢYⱼ)/dXᵢ
                 for f in glrm.observed_features[e]
-                    println("e=$(e), f=$(f)")
                     # but we have no function dLⱼ/dXᵢ, only dLⱼ/d(XᵢYⱼ) aka dLⱼ/du
                     # by chain rule, the result is: Σⱼ (dLⱼ(XᵢYⱼ)/du * Yⱼ), where dLⱼ/du is our grad() function
-                    curgrad = grad(group_func, e, f, losses, XY, A, Z, glrm.observed_features, refresh=refresh)
-                    curgrad = curgrad * magnitude_Ω
+                    curgrad = grad(group_func, e, f, losses, XY, A, Z, glrm.observed_features, refresh=refresh);
+                    curgrad = curgrad * magnitude_Ω;
                     if isa(curgrad, Number)
-                        axpy!(curgrad, vf[f], g)
+                        axpy!(curgrad, vf[f], g);
                     else
                         # on v0.4: gemm!('N', 'T', 1.0, vf[f], curgrad, 1.0, g)
-                        gemm!('N', 'N', 1.0, vf[f], curgrad, 1.0, g)
-                    end
-                    refresh = false # no longer need to compute the group-wise loss until moving onto new iteration of X/Y
-                end
+                        gemm!('N', 'N', 1.0, vf[f], curgrad, 1.0, g);
+                    end;
+                    refresh = false; # no longer need to compute the group-wise loss until moving onto new iteration of X/Y
+                end;
                 # take a proximal gradient step to update ve[e]
-                l = length(glrm.observed_features[e]) + 1 # if each loss function has lipshitz constant 1 this bounds the lipshitz constant of this example's objective
-                obj_by_row[e] = row_objective(glrm, e, X) # previous row objective value
+                l = length(glrm.observed_features[e]) + 1; # if each loss function has lipshitz constant 1 this bounds the lipshitz constant of this example's objective
+                obj_by_row[e] = row_objective(glrm, e, ve[e], vk); # previous row objective value
                 while alpharow[e] > params.min_stepsize
-                    stepsize = alpharow[e]/l
+                    stepsize = alpharow[e]/l;
                     # newx = prox(rx[e], ve[e] - stepsize*g, stepsize) # this will use much more memory than the inplace version with linesearch below
                     ## gradient step: Xᵢ += -(α/l) * ∇{Xᵢ}L
-                    axpy!(-stepsize,g,newve[e])
+                    axpy!(-stepsize,g,newve[e]);
                     ## prox step: Xᵢ = prox_rx(Xᵢ, α/l)
-                    prox!(rx[e],newve[e],stepsize)
-                    if row_objective(glrm, e, newX) < obj_by_row[e]
-                        copyto!(ve[e], newve[e])
-                        alpharow[e] *= 1.05
-                        break
+                    prox!(rx[e],newve[e],stepsize);
+                    if row_objective(glrm, e, newve[e], newvk) < obj_by_row[e]
+                        copyto!(ve[e], newve[e]);
+                        alpharow[e] *= 1.05;
+                        break;
                     else # the stepsize was too big; undo and try again only smaller
-                        copyto!(newve[e], ve[e])
-                        alpharow[e] *= .7
+                        copyto!(newve[e], ve[e]);
+                        alpharow[e] *= .7;
                         if alpharow[e] < params.min_stepsize
-                            alpharow[e] = params.min_stepsize * 1.1
-                            break
-                        end
-                    end
+                            alpharow[e] = params.min_stepsize * 1.1;
+                            break;
+                        end;
+                    end;
                 end
+                )
+                # open("tmp/prof-$(e).txt", "w") do s
+                #     Profile.print(IOContext(s, :displaysize => (24, 500)))
+                # end
             end # for e=1:m
             for k_prime=1:k # new section that I've added for component-wise gradient
                 println("For iteration $(i), analysing component $(k_prime)/$(k)")

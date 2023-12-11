@@ -85,21 +85,22 @@ function row_objective(glrm::AbstractGLRM, i::Int, x::AbstractArray, Y::Array{Fl
     return err
 end
 
-function row_objective(fglrm::FairGLRM, i::Int, X::Array{Float64, 2}, Y::Array{Float64,2} = fglrm.Y;
+function row_objective(fglrm::FairGLRM, i::Int, x::AbstractArray, vk::AbstractArray, Y::Array{Float64,2} = fglrm.Y;
         yidxs = get_yidxs(fglrm.losses), # mapping from columns of A to columns of Y; by default, the identity
         include_regularization=true)
-    x = X[:, i]
     XY = x'*Y
+    err = 0.0
     # Use the provided group functional to evaluate the total loss
-    xy = []
-    for yidx in yidxs
-        push!(xy, XY[yidx])
+    for j in fglrm.observed_features[i]
+        err += evaluate(fglrm.losses[j], XY[1,yidxs[j]], fglrm.A[i,j])
     end
-    err = evaluate(fglrm.group_functional, fglrm.losses, xy, fglrm.A[i, :], [Set(1)], fglrm.observed_features[i], yidxs=yidxs)
-    # add regularization penalty
+    # xy = []
+    # for yidx in yidxs push!(xy, XY[yidx]) end
+    # err = evaluate(fglrm.group_functional, fglrm.losses, xy, fglrm.A[i, :], [Set(1)], fglrm.observed_features[i], yidxs=yidxs)
+    # # add regularization penalty
     if include_regularization
         err += evaluate(fglrm.rx[i], x)
-        err += sum(evaluate(fglrm.rkx[k], X[k, :], i) for k=1:fglrm.k) / size(X, 2)
+        err += sum(evaluate(fglrm.rkx[k], vk[k]) for k=1:fglrm.k) / size(x, 1)
     end
     return err
 end
