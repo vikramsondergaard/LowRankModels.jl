@@ -600,15 +600,19 @@ mutable struct HSICReg<:ColumnRegularizer
     scale::Float64
     s::AbstractArray
     α::Float64
-    hsic::HSIC
+    nfsic::NFSIC
 end
 HSICReg(s::AbstractArray) = begin
     new_s = CuArray(s)
-    HSICReg(1, new_s, 0.5, get_hsic(new_s))
+    idxs = rand(1:length(s), floor(Int, length(s)/100))
+    W = CuArray(s[idxs, :])
+    HSICReg(1, new_s, 0.5, get_nfsic(new_s, W))
 end
 HSICReg(scale::Float64, s::AbstractArray) = begin
     new_s = CuArray(s)
-    HSICReg(scale, new_s, 0.5, get_hsic(new_s))
+    idxs = rand(1:length(s), floor(Int, length(s)/100))
+    W = CuArray(s[idxs, :])
+    HSICReg(scale, new_s, 0.5, get_nfsic(new_s, W))
 end
 evaluate(r::HSICReg, u::AbstractArray) = begin
     # if length(size(u)) == 1
@@ -617,7 +621,10 @@ evaluate(r::HSICReg, u::AbstractArray) = begin
     # else
     #     hsic = hsic_gam!(r.hsic, CuArray(u))
     # end
-    hsic = hsic_gam!(r.hsic, CuArray(u))
+    # hsic = hsic_rff(r.hsic, CuArray(u); n_samples=100)
+    idxs = rand(1:length(u), floor(Int, length(u)/100))
+    V = CuArray(u[idxs, :])
+    hsic = calc_nfsic(r.nfsic, Float32.(CuArray(u)), Float32.(V); reg=1)
     r.scale * hsic
 end
 # evaluate(r::HSICReg, u::AbstractArray, e::Int) = begin

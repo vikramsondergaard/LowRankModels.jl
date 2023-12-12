@@ -15,7 +15,7 @@ using JLD
 
 import LinearAlgebra: dot, norm, Diagonal, rmul!, mul!, tr
 import Base: show
-import StatsBase: fit!, mode, mean, var, std
+import StatsBase: fit!, mode, mean, var, std, sample
 
 # define losses, regularizers, convergence history
 include("domains.jl")
