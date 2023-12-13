@@ -176,12 +176,15 @@ function hsic_rff(hsic::HSIC, X::AbstractArray; n_samples::Int64=floor(Int, leng
 end
 
 struct NFSIC <: IndependenceCriterion
-    L::AbstractArray{Float32, 2}
+    L::T where T<:AbstractArray{Float32, 2}
+    mean_l::T where T<:AbstractArray{Float32, 2}
+    Lt::T where T<:AbstractArray{Float32, 2}
 end
 function get_nfsic(Y::AbstractArray{Float32}, W::AbstractArray{Float32})
-    width_y = get_width(Y)
-    L = rbf_dot(Y, W, width_y)
-    NFSIC(L)
+    # width_y = get_width(Y)
+    L = rbf_dot(Y, W, Float64(var(Y)))
+    mean_l = mean(L; dims=1)
+    NFSIC(L, mean_l, L .- mean_l)
 end
 get_nfsic(Y::AbstractArray{Float64}, W::AbstractArray{Float32}) = get_nfsic(Float32.(Y), W)
 get_nfsic(Y::AbstractArray{Float32}, W::AbstractArray{Float64}) = get_nfsic(Y, Float32.(W))
@@ -190,21 +193,21 @@ get_nfsic(Y::AbstractArray{Float64}, W::AbstractArray{Float64}) = get_nfsic(Floa
 function calc_nfsic(nfsic::NFSIC, X::AbstractArray{Float32}, V::AbstractArray{Float32}; reg=0)
     n = size(X, 1)
     J = size(V, 1)
-    width_x = get_width(X)
+    # width_x = get_width(X)
     
-    K = rbf_dot(X, V, width_x) # n x J
+    K = rbf_dot(X, V, Float64(var(X))) # n x J
     L = nfsic.L                # n x J
     
     # mean
     mean_k = mean(K; dims=1)
-    mean_l = mean(L; dims=1)
+    mean_l = nfsic.mean_l
 
     # biased
     u = CuArray(mean(K .* L; dims=1) - (mean_k .* mean_l))
     # cov
     # Generic covariance
     Kt = K .- mean_k
-    Lt = L .- mean_l
+    Lt = nfsic.Lt
     
     Snd_mo = Kt .* Lt
     Sig = (Snd_mo' * Snd_mo ./ n) - (u' * u)

@@ -401,7 +401,7 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
             println("Starting X iteration $(inneri) of single-threaded proxgrad")
             refresh = true # don't need to re-compute group-wise losses every single time for group functionals
             for e=1:m # for every example x_e == ve[e]
-                @time (
+                # @time (
                 fill!(g, 0.); # reset gradient to 0
                 # compute gradient of L with respect to Xᵢ as follows:
                 # ∇{Xᵢ}L = Σⱼ dLⱼ(XᵢYⱼ)/dXᵢ
@@ -441,7 +441,7 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
                         end;
                     end;
                 end
-                )
+                # )
                 # open("tmp/prof-$(e).txt", "w") do s
                 #     Profile.print(IOContext(s, :displaysize => (24, 500)))
                 # end
