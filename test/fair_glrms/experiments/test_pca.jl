@@ -84,7 +84,11 @@ function test_pca(test_reg::String)
     end
 
     if test_reg == "independence"
-        regulariser = regtype(1.0, normalise(data[:, s]))
+        if fairness == "hsic"
+            regulariser = regtype(1.0, normalise(data[:, s]), NFSIC)
+        else
+            regulariser = regtype(1.0, normalise(data[:, s]))
+        end
     elseif test_reg == "separation"
         regulariser = SeparationReg(1.0, data[:, s], data[:, y_idx], regtype)
     elseif test_reg == "sufficiency"

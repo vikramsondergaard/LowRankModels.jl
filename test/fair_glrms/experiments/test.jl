@@ -96,7 +96,11 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
         relative_scale = scale
 
         if test_reg == "independence"
-            regulariser = regtype(relative_scale, normalise(data[:, s]))
+            if fairness == "hsic"
+                regulariser = regtype(relative_scale, normalise(data[:, s]), NFSIC)
+            else
+                regulariser = regtype(relative_scale, normalise(data[:, s]))
+            end
         elseif test_reg == "separation"
             regulariser = SeparationReg(relative_scale, data[:, s], data[:, y_idx], regtype)
         elseif test_reg == "sufficiency"

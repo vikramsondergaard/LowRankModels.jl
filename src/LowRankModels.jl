@@ -12,6 +12,7 @@ using DataFrames
 using ArgParse
 using CUDA
 using JLD
+using Flux
 
 import LinearAlgebra: dot, norm, Diagonal, rmul!, mul!, tr
 import Base: show
