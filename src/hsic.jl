@@ -425,7 +425,21 @@ function optimize_locs_widths(X::AbstractArray, Y::AbstractArray;
     gwidthx_ub = gwidthx_ub == nothing ? fac_max * medx2 : gwidthx_lb
     gwidthy_ub = gwidthy_ub == nothing ? fac_max * medy2 : gwidthy_ub
 
+    V, W, width_x, width_y = generic_optimize_locs_widths(X, Y, V, W,
+        best_widthx, best_widthy, func_obj; 
+        max_iter=max_iter, V_step=V_step, W_step=W_step,
+        gwidthx_step=gwidthx_step, gwidthy_step=gwidthy_step,
+        batch_proportion=batch_proportion, tol_fun=tol_fun, step_pow=step_pow,
+        reg=reg, gwidthx_lb=gwidthx_lb, gwidthx_ub=gwidthx_ub,
+        gwidthy_lb=gwidthy_lb, gwidthy_ub=gwidthy_ub)
 
+    # make sure that the optimized gwidthx, gwidthy are not too small
+    # or too large.
+    fac_min = 5e-2
+    fac_max = 5e3
+    width_x = max(fac_min * medx2, 1e-7, min(fac_max * medx2, width_x))
+    width_y = max(fac_min * medy2, 1e-7, min(fac_max * medy2, width_y))
+    return (V, W, width_x, width_y)
 end
 
 """
@@ -616,23 +630,72 @@ function generic_optimize_locs_widths(X::AbstractArray, Y::AbstractArray,
         max_iter::Int64=400, V_step::Float64=1.0, W_step::Float64=1.0,
         gwidthx_step::Float64=1.0, gwidthy_step::Float64=1.0,
         batch_proportion::Float64=1.0, tol_fun::Float64=1e-3, 
-        step_pow::Float64=0.5, reg::Float64=1e-5, seed::Int64=101,
+        step_pow::Float64=0.5, reg::Float64=1e-5,
         gwidthx_lb::Float64=1e-3, gwidthx_ub::Float64=1e6,
         gwidthy_lb::Float64=1e-3, gwidthy_ub::Float64=1e6)
     if size(V0, 1) != size(W0, 1) 
         error("V0 and W0 must have the same number of rows J.")
     end
 
-    it = 1
+    constrain(var::Float64, lb::Float64, ub::Float64) = max(min(var, ub), lb)
+
+    it = 1.0
+    # Represent this as a function so I can get its gradient for later
     s(nt::NamedTuple) = func_obj(nt.Xth, nt.Yth, nt.Vth, nt.Wth, nt.gwidthx_th,
         nt.gwidthy_th, nt.regth, nt.n, nt.J)
-    params = (Xth = X, Yth = Y, Vth = V0, Wth = W0, gwidthx_th = gwidthx0,
-        gwidthy_th = gwidthy0, regth = reg, n = size(X, 1), J = size(V0, 1))
-    g = gradient(s, params)[1]
 
-    model = Chain(
-        
-    )
+    # heuristic to prevent step sizes from being too large
+    max_gwidthx_step = minimum(std(X, dims=1)) / 2.0
+    max_gwidthy_step = minimum(std(Y, dims=1)) / 2.0
+    n = size(Y, 1)
+    old_S = 0
+    S = 0
+    Vth = V0
+    Wth = W0
+    gwidthx_th = sqrt(gwidthx0)
+    gwidthy_th = sqrt(gwidthy0)
+
+    for t=1:max_iter
+        # stochastic gradient ascent
+        ind = sample(1:n, min(floor(Int64, batch_proportion * n), n);
+            ordered=true, replace=false)
+        try
+            params = (Xth = X[ind, :], Yth = Y[ind, :], Vth = Vth, Wth = Wth,
+                gwidthx_th = gwidthx_th^2, gwidthy_th = gwidthy_th^2,
+                regth = reg, n = size(X, 1), J = size(V0, 1))
+            S = s(params)
+            g = gradient(s, params)[1]
+
+            g_V = g.Vth;              g_W = g.Wth
+            g_gwidthx = g.g_widthx_th; g_gwidthy = g.g_widthy_th
+
+            # updates
+            Vth .+= (V_step / it^step_pow / sqrt(mapreduce(x -> x^2, +, g_V))) .* g_V
+            Wth .+= (W_step / it^step_pow / sqrt(mapreduce(x -> x^2, +, g_W))) .* g_W
+            it += 1
+            gwidthx_th = constrain(
+                gwidthx_th + gwidthx_step * sign(g_gwidthx) * 
+                    min(abs(g_gwidthx), max_gwidthx_step) / it^step_pow,
+                    sqrt(gwidthx_lb), sqrt(gwidthx_ub)
+            )
+            gwidthy_th = constrain(
+                gwidthy_th + gwidthy_step * sign(g_gwidthy) * 
+                    min(abs(g_gwidthy), max_gwidthy_step) / it^step_pow,
+                    sqrt(gwidthy_lb), sqrt(gwidthy_ub)
+            )
+
+            if t >= 4 && abs(old_S - S) <= tol_fun break end
+            old_S = S
+        catch _
+            println('Exception occurred during gradient descent. Stop optimization.')
+            println('Return the value from previous iter. ')
+            break
+        end
+
+        if t >= 0  return (Vth, Wth, gwidthx_th, gwidthy_th)
+        else       return (V0, W0, gwidthx0, gwidthy0) # Probably an error occurred in the first iteration.
+        end
+    end
 end
 
 function func_obj(Xth::AbstractArray, Yth::AbstractArray, Vth::AbstractArray,
