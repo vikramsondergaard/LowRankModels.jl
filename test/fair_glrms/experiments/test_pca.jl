@@ -85,7 +85,7 @@ function test_pca(test_reg::String)
 
     if test_reg == "independence"
         if fairness == "hsic"
-            regulariser = regtype(1.0, normalise(data[:, s]), NFSIC)
+            regulariser = regtype(1.0, normalise(data[:, s]), glrmX[1, :], NFSIC)
         else
             regulariser = regtype(1.0, normalise(data[:, s]))
         end

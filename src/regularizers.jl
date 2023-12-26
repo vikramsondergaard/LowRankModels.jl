@@ -602,13 +602,15 @@ mutable struct HSICReg<:ColumnRegularizer
     α::Float64
     independence::IndependenceCriterion
 end
-HSICReg(s::AbstractArray, ic::DataType) = begin
+HSICReg(s::AbstractArray, X::AbstractArray, ic::DataType) = begin
     new_s = CuArray(s)
-    HSICReg(1, new_s, 0.5, get_independence_criterion(new_s, ic))
+    new_X = CuArray(X)
+    HSICReg(1, new_s, 0.5, get_independence_criterion(new_s, new_X, ic))
 end
-HSICReg(scale::Float64, s::AbstractArray, ic::DataType) = begin
+HSICReg(scale::Float64, s::AbstractArray, X::AbstractArray, ic::DataType) = begin
     new_s = CuArray(s)
-    HSICReg(scale, new_s, 0.5, get_independence_criterion(new_s, ic))
+    new_X = CuArray(X)
+    HSICReg(scale, new_s, 0.5, get_independence_criterion(new_s, new_X, ic))
 end
 evaluate(r::HSICReg, u::AbstractArray) = begin
     # if length(size(u)) == 1

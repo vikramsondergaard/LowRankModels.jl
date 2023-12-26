@@ -97,7 +97,7 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
 
         if test_reg == "independence"
             if fairness == "hsic"
-                regulariser = regtype(relative_scale, normalise(data[:, s]), NFSIC)
+                regulariser = regtype(relative_scale, normalise(data[:, s]), glrmX[1, :], NFSIC)
             else
                 regulariser = regtype(relative_scale, normalise(data[:, s]))
             end
