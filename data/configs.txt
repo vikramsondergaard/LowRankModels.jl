@@ -1,0 +1,14 @@
+scale_10000.0
+scale_60.0
+scale_20.0
+scale_1000.0
+scale_100.0
+scale_0.1
+scale_1.0e-6
+scale_1.0
+scale_5.0
+scale_0.003
+scale_10.0
+scale_0.01
+scale_0.5
+scale_1.0e-5
