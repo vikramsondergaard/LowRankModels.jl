@@ -52,6 +52,9 @@ function objective(fglrm::FairGLRM, X::Array{Float64,2}, Y::Array{Float64,2},
                    include_regularization=true)
     m,n = size(fglrm.A)
     @assert(size(XY)==(m,yidxs[end][end]))
+    println("value of k is $(fglrm.k)")
+    println("value of yidxs[end][end] is $(yidxs[end][end])")
+    println("size of Y is $(size(Y))")
     @assert(size(Y)==(fglrm.k,yidxs[end][end]))
     @assert(size(X)==(fglrm.k,m))
     # Use the provided group functional to evaluate the total loss
@@ -149,7 +152,8 @@ function col_objective(fglrm::FairGLRM, j::Int, y::AbstractArray, X::Array{Float
     @inbounds XYj = XY[obsex,colind]
     @inbounds Aj = convert(Array, fglrm.A[obsex,j])
     if length(sz) == 1 feature_dims = 1 else feature_dims = length(colind) end
-    err = evaluate(fglrm.group_functional, [fglrm.losses[j]], XYj, Aj, groups, ones(Int64, feature_dims, length(obsex)), yidxs=[colind])
+    # err = evaluate(fglrm.group_functional, [fglrm.losses[j]], XYj, Aj, groups, ones(Int64, feature_dims, length(obsex)), yidxs=[colind])
+    err = evaluate(fglrm.losses[j], XYj, Aj)
     # add regularization penalty
     if include_regularization
         err += evaluate(fglrm.ry[j], y)

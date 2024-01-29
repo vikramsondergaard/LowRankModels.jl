@@ -279,73 +279,34 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
     if eltype(glrm.observed_features) == UnitRange{Int64} # the observed features is a list of ranges
         magnitude_Ω = sum(length(f) for f in glrm.observed_features)
     else                                                  # the observed features is a list of lists/sets
-        num_examples, num_features = size(glrm.observed_features)
-        magnitude_Ω = num_examples * num_features
+        # num_examples, num_features = size(glrm.observed_features)
+        magnitude_Ω = reduce(*, [size(glrm.observed_features, i) for i=1:length(size(glrm.observed_features))])
     end
 
     # alternating updates of X and Y
     if verbose println("Fitting GLRM") end
     d = maximum(yidxs[end])
-    chk_path = "data/checkpoints/$(ch.name)"
-    if isdir(chk_path)
-        iter_dirs = readdir(chk_path, join=true)
-        latest_cp = filter(d -> occursin("iter", d), iter_dirs)[end]
-        X = load(joinpath(latest_cp, "X.jld"), "X")
-        Y = load(joinpath(latest_cp, "Y.jld"), "Y")
 
-        if d != size(Y,2)
-            @warn("The width of Y should match the embedding dimension of the losses.
-            Instead, embedding_dim(glrm.losses) = $(embedding_dim(glrm.losses))
-            and size(glrm.Y, 2) = $(size(glrm.Y, 2)).
-            Reinitializing Y as randn(glrm.k, embedding_dim(glrm.losses).")
-            # Please modify Y or the embedding dimension of the losses to match,
-            # eg, by setting `glrm.Y = randn(glrm.k, embedding_dim(glrm.losses))`")
-            glrm.Y = randn(glrm.k, d)
-        end
+    X = glrm.X; Y = glrm.Y
 
-        XY = load(joinpath(latest_cp, "XY.jld"), "XY")
-        
-        obj = objective(glrm, X, Y, XY, yidxs=yidxs)
-        objectives = load(joinpath(chk_path, "objective.jld"), "objective")
-        times = load(joinpath(chk_path, "times.jld"), "times")
-        start = length(objectives)
-        ch = ConvergenceHistory(ch.name, objectives, zeros(start),
-            zeros(start), zeros(start), times, zeros(start), 0)
-    else
-        X = glrm.X; Y = glrm.Y
+    if d != size(Y,2)
+        @warn("The width of Y should match the embedding dimension of the losses.
+        Instead, embedding_dim(glrm.losses) = $(embedding_dim(glrm.losses))
+        and size(glrm.Y, 2) = $(size(glrm.Y, 2)).
+        Reinitializing Y as randn(glrm.k, embedding_dim(glrm.losses).")
+        # Please modify Y or the embedding dimension of the losses to match,
+        # eg, by setting `glrm.Y = randn(glrm.k, embedding_dim(glrm.losses))`")
+        glrm.Y = randn(glrm.k, d)
+    end
 
-        if d != size(Y,2)
-            @warn("The width of Y should match the embedding dimension of the losses.
-            Instead, embedding_dim(glrm.losses) = $(embedding_dim(glrm.losses))
-            and size(glrm.Y, 2) = $(size(glrm.Y, 2)).
-            Reinitializing Y as randn(glrm.k, embedding_dim(glrm.losses).")
-            # Please modify Y or the embedding dimension of the losses to match,
-            # eg, by setting `glrm.Y = randn(glrm.k, embedding_dim(glrm.losses))`")
-            glrm.Y = randn(glrm.k, d)
-        end
+    XY = Array{Float64}(undef, (m, d))
+    gemm!('T','N',1.0,X,Y,0.0,XY) # XY = X' * Y initial calculation
+    update_ch!(ch, 0, objective(glrm, X, Y, XY, yidxs=yidxs))
+    start = 1
 
-        XY = Array{Float64}(undef, (m, d))
-        gemm!('T','N',1.0,X,Y,0.0,XY) # XY = X' * Y initial calculation
-        update_ch!(ch, 0, objective(glrm, X, Y, XY, yidxs=yidxs))
-        start = 1
-
-        # check that we didn't initialize to zero (otherwise we will never move)
-        if norm(Y) == 0
-            Y = .1*randn(k,d)
-        end
-
-        if checkpoint
-            if verbose println("Saving checkpoints to: $chk_path") end
-            mkpath(chk_path)
-            save(joinpath(chk_path, "objective.jld"), "objective", ch.objective)
-            save(joinpath(chk_path, "times.jld"), "times", zeros(1))
-
-            obj_dir = joinpath(chk_path, "iter_0")
-            mkpath(obj_dir)
-            save(joinpath(obj_dir, "X.jld"), "X", X)
-            save(joinpath(obj_dir, "Y.jld"), "Y", Y)
-            save(joinpath(obj_dir, "XY.jld"), "XY", XY)
-        end
+    # check that we didn't initialize to zero (otherwise we will never move)
+    if norm(Y) == 0
+        Y = .1*randn(k,d)
     end
 
     t = time()
@@ -529,14 +490,6 @@ function fit!(glrm::FairGLRM, params::ProxGradParams;
        #  obj = sum(obj_by_col)
         t = time() - t
         update_ch!(ch, t, obj)
-
-        save(joinpath(chk_path, "objective.jld"), "objective", ch.objective)
-        save(joinpath(chk_path, "times.jld"), "times", zeros(1))
-        obj_dir = joinpath(chk_path, "iter_$i")
-        mkpath(obj_dir)
-        save(joinpath(obj_dir, "X.jld"), "X", X)
-        save(joinpath(obj_dir, "Y.jld"), "Y", Y)
-        save(joinpath(obj_dir, "XY.jld"), "XY", XY)
 
         t = time()
         # STEP 4: Check stopping criterion

@@ -13,6 +13,7 @@ using ArgParse
 using CUDA
 using JLD
 using Flux
+using ChainRulesCore
 
 import LinearAlgebra: dot, norm, Diagonal, rmul!, mul!, tr
 import Base: show

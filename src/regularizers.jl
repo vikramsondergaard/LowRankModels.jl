@@ -602,6 +602,10 @@ mutable struct HSICReg<:ColumnRegularizer
     α::Float64
     independence::IndependenceCriterion
 end
+HSICReg(scale::Float64, s::AbstractArray) = begin
+    new_s = CuArray(s)
+    HSICReg(scale, new_s, 0.5, get_independence_criterion(new_s, CUDA.ones(1), HSIC))
+end
 HSICReg(s::AbstractArray, X::AbstractArray, ic::DataType) = begin
     new_s = CuArray(s)
     new_X = CuArray(X)
@@ -611,6 +615,17 @@ HSICReg(scale::Float64, s::AbstractArray, X::AbstractArray, ic::DataType) = begi
     new_s = CuArray(s)
     new_X = CuArray(X)
     HSICReg(scale, new_s, 0.5, get_independence_criterion(new_s, new_X, ic))
+end
+evaluate(r::HSICReg, u::AbstractArray, groups::AbstractArray{Int64, 1}) = begin
+    # if length(size(u)) == 1
+    #     n = length(u)
+    #     hsic = hsic_gam!(r.hsic, CuArray(u))
+    # else
+    #     hsic = hsic_gam!(r.hsic, CuArray(u))
+    # end
+    # hsic = hsic_rff(r.hsic, CuArray(u); n_samples=100)
+    hsic = evaluate(r.independence, Float32.(CuArray(u[:, :])), groups)
+    r.scale * hsic
 end
 evaluate(r::HSICReg, u::AbstractArray) = begin
     # if length(size(u)) == 1
@@ -654,19 +669,30 @@ mutable struct SeparationReg<:ColumnRegularizer
     groups::AbstractArray
     α::Float64
     r::DataType
+    nfsic::Union{NFSIC, Nothing}
 end
 SeparationReg(s::AbstractArray, y::AbstractArray, r::DataType) =
-    SeparationReg(1, s, y, bin(y), 0.5, r)
+    SeparationReg(1, s, y, bin(y), 0.5, r, nothing)
 SeparationReg(scale::Float64, s::AbstractArray, y::AbstractArray, r::DataType) = 
-    SeparationReg(scale, s, y, bin(y), 0.5, r)
+    SeparationReg(scale, s, y, bin(y), 0.5, r, nothing)
 SeparationReg(s::AbstractArray, y::AbstractArray, groups::AbstractArray, r::DataType) =
-    SeparationReg(1, s, y, groups, 0.5, r)
+    SeparationReg(1, s, y, groups, 0.5, r, nothing)
+    SeparationReg(scale::Float64, s::AbstractArray, y::AbstractArray, r::DataType, nfsic::NFSIC) = 
+    SeparationReg(scale, s, y, bin(y), 0.5, r, nfsic)
 evaluate(r::SeparationReg, u::AbstractArray) = begin
     total_loss = 0.0
     for g in r.groups
-        reg = r.r(r.scale, normalise(r.s[g]))
+        if r.nfsic != nothing
+            L = CuArray(Array(r.nfsic.L)[g, :])
+            mean_l = mean(L, dims=1)
+            V_W_groups = filter(x -> x <= size(r.nfsic.V, 1), g)
+            new_nfsic = NFSIC(L, mean_l, L .- mean_l, r.nfsic.V, r.nfsic.W, r.nfsic.width_x, r.nfsic.width_y)
+            reg = r.r(r.scale, r.s[g], r.α, new_nfsic)
+        else
+            reg = r.r(r.scale, normalise(r.s[g]))
+        end
         u_g = normalise(u[g])
-        total_loss += evaluate(reg, u_g)
+        total_loss += r.r == HSICReg ? evaluate(reg, Float32.(CuArray(u_g))) : evaluate(reg, u_g)
     end
     total_loss
 end
@@ -675,8 +701,16 @@ prox(r::SeparationReg, u::AbstractArray, alpha::Float64) = begin
     for g in r.groups
         u_g = u[g]
         s_g = normalise(r.s[g])
-        reg = r.r(r.scale, s_g)
-        subgrad = u_g .- prox(reg, u_g, alpha)
+        if r.nfsic != nothing
+            L = CuArray(Array(r.nfsic.L)[g, :])
+            mean_l = mean(L, dims=1)
+            V_W_groups = filter(x -> x <= size(r.nfsic.V, 1), g)
+            new_nfsic = NFSIC(L, mean_l, L .- mean_l, r.nfsic.V, r.nfsic.W, r.nfsic.width_x, r.nfsic.width_y)
+            reg = r.r(r.scale, r.s[g], r.α, new_nfsic)
+        else
+            reg = r.r(r.scale, s_g)
+        end
+        subgrad = r.r == HSICReg ? u_g .- Array(prox(reg, Float32.(CuArray(u_g)), alpha)) : u_g .- prox(reg, u_g, alpha)
         i = 1
         for j in g
             grad[j] += subgrad[i]
@@ -696,9 +730,11 @@ mutable struct SufficiencyReg<:ColumnRegularizer
     y::AbstractArray
     α::Float64
     r::DataType
+    nfsic::Union{NFSIC, Nothing}
 end
-SufficiencyReg(s::AbstractArray, y::AbstractArray, r::DataType) = SufficiencyReg(1.0, s, y, 0.5, r)
-SufficiencyReg(scale::Float64, s::AbstractArray, y::AbstractArray, r::DataType) = SufficiencyReg(scale, s, y, 0.5, r)
+SufficiencyReg(s::AbstractArray, y::AbstractArray, r::DataType) = SufficiencyReg(1.0, s, y, 0.5, r, nothing)
+SufficiencyReg(scale::Float64, s::AbstractArray, y::AbstractArray, r::DataType) = SufficiencyReg(scale, s, y, 0.5, r, nothing)
+SufficiencyReg(scale::Float64, s::AbstractArray, y::AbstractArray, r::DataType, nfsic::NFSIC) = SufficiencyReg(scale, s, y, 0.5, r, nfsic)
 evaluate(r::SufficiencyReg, u::AbstractArray) = begin
     total_loss = 0.0
     if length(size(u)) == 1
@@ -706,9 +742,17 @@ evaluate(r::SufficiencyReg, u::AbstractArray) = begin
         filter!(g -> length(g) > 1, groups)
         for g in groups
             s_g = r.s[g]
-            reg = r.r(r.scale, normalise(s_g))
+            if r.nfsic != nothing
+                L = CuArray(Array(r.nfsic.L)[g, :])
+                mean_l = mean(L, dims=1)
+                V_W_groups = filter(x -> x <= size(r.nfsic.V, 1), g)
+                new_nfsic = NFSIC(L, mean_l, L .- mean_l, r.nfsic.V, r.nfsic.W, r.nfsic.width_x, r.nfsic.width_y)
+                reg = r.r(r.scale, r.s[g], r.α, new_nfsic)
+            else
+                reg = r.r(r.scale, normalise(s_g))
+            end
             y_g = r.y[g]
-            total_loss += evaluate(reg, y_g)
+            total_loss += r.r == HSICReg ? evaluate(reg, Float32.(CuArray(y_g))) : evaluate(reg, y_g)
         end
     else
         for j=1:size(u, 2)
@@ -716,9 +760,17 @@ evaluate(r::SufficiencyReg, u::AbstractArray) = begin
             filter!(g -> length(g) > 1, groups)
             for g in groups
                 s_g = r.s[g]
-                reg = r.r(r.scale, normalise(s_g))
+                if r.nfsic != nothing
+                    L = CuArray(Array(r.nfsic.L)[g, :])
+                    mean_l = mean(L, dims=1)
+                    V_W_groups = filter(x -> x <= size(V, 1), g)
+                    new_nfsic = NFSIC(L, mean_l, L .- mean_l, r.nfsic.V, r.nfsic.W, r.nfsic.width_x, r.nfsic.width_y)
+                    reg = r.r(r.scale, r.s[g], r.α, new_nfsic)
+                else
+                    reg = r.r(r.scale, normalise(s_g))
+                end
                 y_g = r.y[g]
-                total_loss += evaluate(reg, y_g)
+                total_loss += r.r == HSICReg ? evaluate(reg, Float32.(CuArray(y_g))) : evaluate(reg, y_g)
             end
         end
     end

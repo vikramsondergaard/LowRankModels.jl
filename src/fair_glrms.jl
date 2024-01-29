@@ -67,7 +67,8 @@ function partition_groups(A, s::Int, n_groups::Int)
     groups
 end
 
-function FairGLRM(A, losses::Array, rx::Array, ry::Array, rkx::Array, rky::Array, k::Int, s::Int, group_functional::GroupFunctional;
+
+function FairGLRM(A, losses::Array, rx::Array, ry::Array, rkx::Array, rky::Array, k::Int, s, group_functional::GroupFunctional;
                   X = randn(k,size(A,1)), Y = randn(k,embedding_dim(losses)),
                   Z = partition_groups(A, s, length(group_functional.weights)),
                   obs = nothing,                                    # [(i₁,j₁), (i₂,j₂), ... (iₒ,jₒ)]

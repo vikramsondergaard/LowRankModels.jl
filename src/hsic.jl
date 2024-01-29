@@ -1,6 +1,6 @@
 import Distributions: Gamma
 
-export evaluate, grad, get_independence_criterion, HSIC, NFSIC
+export evaluate, grad, get_independence_criterion, get_nfsic, HSIC, NFSIC
 
 """
 Code for computing HSIC of two matrices
@@ -46,6 +46,14 @@ get_independence_criterion(Y::AbstractArray{Float64, 1}, ic::DataType) =
     get_independence_criterion(Float32.(Y)[:, :], ic)
 get_independence_criterion(Y::AbstractArray{Float64, 1}, X::AbstractArray{Float64, 1}, ic::DataType) =
     get_independence_criterion(Float32.(Y)[:, :], Float32.(X)[:, :], ic)
+get_independence_criterion(Y::AbstractArray{Float64, 1}, X::AbstractArray{Float32, 1}, ic::DataType) =
+    get_independence_criterion(Float32.(Y)[:, :], X[:, :], ic)
+get_independence_criterion(Y::AbstractArray{Float64, 2}, X::AbstractArray{Float64, 2}, ic::DataType) =
+    get_independence_criterion(Float32.(Y), Float32.(X), ic)
+get_independence_criterion(Y::AbstractArray{Float64, 2}, X::AbstractArray{Float32, 1}, ic::DataType) =
+    get_independence_criterion(Float32.(Y), X[:, :], ic)
+get_independence_criterion(Y::AbstractArray{Float64, 2}, X::AbstractArray{Float64, 1}, ic::DataType) =
+    get_independence_criterion(Float32.(Y), Float32.(X)[:, :], ic)
 
 eye(n::Int64) = CuMatrix(I, n, n)
 
@@ -79,17 +87,19 @@ function rbf_dot(pattern1::AbstractArray, pattern2::AbstractArray, deg::Float64)
     https://github.com/amber0309/HSIC/blob/master/HSIC.py
     """
     # Get sum of Hadamard product along the rows
-    G = mapreduce(identity, +, pattern1 .* pattern1; dims=2)
-    H = mapreduce(identity, +, pattern2 .* pattern2; dims=2)
+    # println("Cal")
+    G = sum(pattern1 .* pattern1, dims=2)
+    H = sum(pattern2 .* pattern2, dims=2)
 
     # Project both matrices into a common space
-    H = (G .+ H') .- (2 .* (pattern1 * pattern2'))
+    K = (G .+ H') .- (2 .* (pattern1 * pattern2'))
 
     # Apply Gaussian distance calculation
-    map(exp, -H ./ (2 * deg^2))
+    exp.(-K ./ (2 * deg^2))
 end
 
 rbf_dot(pattern1::AbstractArray, pattern2::AbstractArray, deg::Float32) = rbf_dot(pattern1, pattern2, Float64(deg))
+rbf_dot(pattern1::AbstractArray, pattern2::AbstractArray, deg::Int64) = rbf_dot(pattern1, pattern2, Float64(deg))
 
 function rbf_dot(X::AbstractArray, deg²::Float64)
     """
@@ -266,10 +276,10 @@ function get_nfsic(Y::AbstractArray)
     get_nfsic(Y, W, Float64(var(Y)))
 end
 function get_nfsic(Y::AbstractArray, X::AbstractArray)
-    V, W, width_x, width_y = optimize_locs_widths(X, Y)
-    L = rbf_dot(Y, W, width_y)
+    V, W, width_x, width_y = optimize_locs_widths(X, Y, n_test_locs=2, max_iter=2000, tol_fun=1e-4)
+    L = rbf_dot(Y, W, sqrt(width_y))
     mean_l = mean(L, dims=1)
-    NFSIC(L, mean_l, L .- mean_l, V, W, width_x, width_y)
+    NFSIC(L, mean_l, L .- mean_l, V, W, sqrt(width_x), sqrt(width_y))
 end
 function get_nfsic(Y::AbstractArray, V::AbstractArray, W::AbstractArray, width_x::Float32, width_y::Float32)
     L = rbf_dot(Y, W, width_y)
@@ -280,11 +290,15 @@ end
 # get_nfsic(Y::AbstractArray{Float32}, W::AbstractArray{Float64}) = get_nfsic(Y, Float32.(W))
 # get_nfsic(Y::AbstractArray{Float64}, W::AbstractArray{Float64}) = get_nfsic(Float32.(Y), Float32.(W))
 
-function evaluate(nfsic::NFSIC, X::AbstractArray{Float32}; optim=false, reg=1)
-    n = size(X, 1)
-    idxs = rand(1:n, 1250)
-    V = CuArray(X[idxs, :])
-    evaluate(nfsic, X, V)
+# function evaluate(nfsic::NFSIC, X::AbstractArray{Float32}; optim=false, reg=1)
+#     n = size(X, 1)
+#     idxs = rand(1:n, 1250)
+#     V = CuArray(X[idxs, :])
+#     evaluate(nfsic, X, V)
+# end
+
+function evaluate(nfsic::NFSIC, X::AbstractArray{Float64}; reg=1)
+    evaluate(nfsic, Float32.(X), reg=reg)
 end
 
 function evaluate(nfsic::NFSIC, X::AbstractArray{Float32}; reg=1)
@@ -308,23 +322,35 @@ function evaluate(nfsic::NFSIC, X::AbstractArray{Float32}; reg=1)
     
     Snd_mo = Kt .* Lt
     Sig = (Snd_mo' * Snd_mo ./ n) - (u' * u)
-    nfsic_from_u_sig(Float32.(u), Float32.(Sig), n, reg)
+    nfsic_from_u_sig(Float32.(u), Float32.(Sig), n, reg) * (n / J)
+end
+
+function evaluate(nfsic::NFSIC, X::AbstractArray{Float32}, groups::AbstractArray{Int64, 1}; reg=1)
+    L = CuArray(Array(nfsic.L)[groups, :])
+    mean_l = mean(L, dims=1)
+    V_W_groups = filter(g -> g <= size(V, 1), groups)
+    V = nfsic.V[V_W_groups, :]
+    W = nfsic.W[V_W_groups, :]
+    new_nfsic = NFSIC(L, mean_l, L .- mean_l, V, W, nfsic.width_x, nfsic.width_y)
+    return evaluate(new_nfsic, X, reg=reg)
 end
 
 function nfsic_from_u_sig(u::AbstractArray{Float32, 2}, Sig::AbstractArray{Float32, 2}, n::Int64, reg::Int=0)
     J = length(u)
-    println("J is $J")
-    println("The size of u is $(size(u))")
-    show(u); println()
-    show(Sig); println()
+    # println("J is $J")
+    # println("The size of u is $(size(u))")
+    # show(u); println()
+    # show(Sig); println()
     if J == 1
         r = max(reg, 1250)
-        s = Float64(n) .* dot(u, ones(1)).^2 / (r .+ dot(Sig, ones(1)))
+        u_dot_one = reduce(+, u)^2
+        sig_dot_one = reduce(+, Sig)
+        s = Float64(n) * u_dot_one / (r + sig_dot_one)
     else
         if reg <= 0
             try
                 sol = Sig \ u'
-                println("sol is:"); show(sol); println()
+                # println("sol is:"); show(sol); println()
                 s = n * dot(sol, u)
             catch e
                 throw(e)
@@ -363,17 +389,11 @@ nfsic_from_u_sig(u::AbstractArray{Float64, 2}, Sig::AbstractArray{Float64, 2}, n
 function grad(nfsic::NFSIC, X::AbstractArray{Float32}; optim=false, reg=1)
     n = size(X, 1)
 
-    if !optim
-        idxs = rand(1:n, 1250)
-        V = CuArray(X[idxs, :])
-    end
-
-    J = size(V, 1)
-    width_x = Float64(var(X))
+    J = size(nfsic.V, 1)
     
-    K = rbf_dot(X, V, width_x)              # n x J
-    Km = -1 .* K .* (X .- V') ./ width_x^2  # gradient
-    L = nfsic.L                             # n x J
+    K = rbf_dot(X, nfsic.V, nfsic.width_x)              # n x J
+    Km = -1 .* K .* (X .- nfsic.V') ./ nfsic.width_x^2  # gradient
+    L = nfsic.L                                         # n x J
     
     # mean
     mean_k = mean(Km; dims=1)
@@ -428,12 +448,12 @@ function optimize_locs_widths(X::AbstractArray, Y::AbstractArray;
     J = n_test_locs
     # Use grid search to initialise the gwidths for both X, Y
     n_gwidth_cand = 5
-    gwidth_factors = LinRange(-3, 3, n_gwidth_cand).^2
+    gwidth_factors = fill(2, n_gwidth_cand).^LinRange(-3, 3, n_gwidth_cand)
     filter!(w -> w > 0, gwidth_factors)
     medx2 = meddistance(X, 1000)^2
     medy2 = meddistance(Y, 1000)^2
 
-    V, W = init_check_subset(X, Y, medx2 * 2, medy2 * 2, J)
+    V, W = init_check_subset(X, Y, medx2 * 2, medy2 * 2, J, n_cand=500, subsample=size(X,1))
     best_widthx, best_widthy = nfsic_grid_search_kernel(X, Y, V, W,
         medx2 .* gwidth_factors, medy2 .* gwidth_factors)
     @assert typeof(best_widthx) <: Real "best_widthx not real. Was $best_widthx"
@@ -524,6 +544,11 @@ end
     ## Return    
     V, W
 """
+function init_check_subset(X::AbstractArray, Y::AbstractArray, widthx::Float64,
+        widthy::Float64, n_test_locs::Int64;
+        n_cand::Int64=50, subsample::Int64=2000, seed::Int64=3)
+    init_check_subset(X, Y, Float32(widthx), Float32(widthy), n_test_locs, n_cand=n_cand, subsample=subsample, seed=seed)
+end
 function init_check_subset(X::AbstractArray, Y::AbstractArray, widthx::Float32,
         widthy::Float32, n_test_locs::Int64;
         n_cand::Int64=50, subsample::Int64=2000, seed::Int64=3)
@@ -536,12 +561,12 @@ function init_check_subset(X::AbstractArray, Y::AbstractArray, widthx::Float32,
     for _=1:n_cand
         V, W = init_locs_joint_subset(X, Y, n_test_locs)
         if subsample < n
-            I = sample(1:n, n_test_locs)
+            I = sample(1:n, n_test_locs, ordered=true, replace=false)
             nfsic = get_nfsic(Y[I, :], V, W, widthx, widthy)
             obj_joint = evaluate(nfsic, X[I, :];reg=0)
         else
             nfsic = get_nfsic(Y, V, W, widthx, widthy)
-            obj_joint = evaluate(nfsic, X, V; width_x=widthx, reg=0)
+            obj_joint = evaluate(nfsic, X; reg=0)
         end
         if obj_joint > best_obj_joint || best_V_joint == nothing
             best_V_joint = V
@@ -556,11 +581,11 @@ function init_check_subset(X::AbstractArray, Y::AbstractArray, widthx::Float32,
     for _=1:n_cand
         V, W = init_locs_marginals_subset(X, Y, n_test_locs)
         if subsample < n
-            I = sample(1:n, n_test_locs)
+            I = sample(1:n, n_test_locs, ordered=true, replace=false)
             nfsic = get_nfsic(Y[I, :], V, W, widthx, widthy)
             obj_prod = evaluate(nfsic, X[I, :]; reg=0)
         else
-            nfsic = get_nfsic(Y, W, widthy)
+            nfsic = get_nfsic(Y, V, W, widthx, widthy)
             obj_prod = evaluate(nfsic, X; reg=0)
         end
         if obj_prod > best_obj_prod || best_V_prod == nothing
@@ -601,42 +626,42 @@ function nfsic_grid_search_kernel(X::AbstractArray, Y::AbstractArray,
     best_widthy = 0
     best_lamb = -Inf
 
-    XX = mapreduce(identity, +, X .* X; dims=2)
-    VV = mapreduce(identity, +, V .* V; dims=2)
+    XX = sum(X .* X; dims=2)
+    VV = sum(V .* V; dims=2)
 
     base_K = (XX .+ VV') .- (2 .* (X * V'))
 
-    YY = mapreduce(identity, +, Y .* Y; dims=2)
-    WW = mapreduce(identity, +, W .* W; dims=2)
+    YY = sum(Y .* Y; dims=2)
+    WW = sum(W .* W; dims=2)
 
     base_L = (YY .+ WW') .- (2 .* (Y * W'))
 
-    println("list_gwidthx is $list_gwidthx")
-    println("list_gwidthy is $list_gwidthy")
+    # println("list_gwidthx is $list_gwidthx")
+    # println("list_gwidthy is $list_gwidthy")
 
     for width_x in list_gwidthx
-        K = map(exp, -base_K ./ (2 * width_x))
+        K = exp.(-base_K ./ width_x)
         mean_k = mean(K, dims=1)
         Kt = K .- mean_k
         for width_y in list_gwidthy
-            println("width_x is $width_x")
-            println("width_y is $width_y")
-            L = map(exp, -base_L ./ (2 * width_y))
+            # println("width_x is $width_x")
+            # println("width_y is $width_y")
+            L = exp.(-base_L ./ width_y)
             try
                 # mean
                 mean_l = mean(L, dims=1)
 
                 # biased
-                u = mean(K .* L, dims=1) - mean_k .* mean_l
+                u = mean(K .* L, dims=1) .- mean_k .* mean_l
                 # cov
                 Lt = L .- mean_l
 
                 Snd_mo = Kt .* Lt
-                Sig = (Snd_mo' * Snd_mo ./ n) - (u' * u)
+                Sig = (Snd_mo' * Snd_mo ./ n) .- (u' * u)
 
                 lamb = nfsic_from_u_sig(u, Sig, n)
                 println("lamb is $lamb")
-                println("best_lamb is $best_lamb")
+                # println("best_lamb is $best_lamb")
                 if lamb <= 0
                     error("The NSIC value was less than 0!")
                 end
@@ -649,9 +674,7 @@ function nfsic_grid_search_kernel(X::AbstractArray, Y::AbstractArray,
                     best_widthx = width_x
                     best_widthy = width_y
                 end
-            catch e 
-                throw(e)
-            end
+            catch _ continue end
         end
     end
     return best_widthx, best_widthy
@@ -666,6 +689,11 @@ function generic_optimize_locs_widths(X::AbstractArray, Y::AbstractArray,
         step_pow::Float64=0.5, reg::Float64=1e-5,
         gwidthx_lb::Float64=1e-3, gwidthx_ub::Float64=1e6,
         gwidthy_lb::Float64=1e-3, gwidthy_ub::Float64=1e6)
+
+    """
+    https://github.com/wittawatj/fsic-test/blob/master/fsic/indtest.py#L553-L723
+    """
+
     if size(V0, 1) != size(W0, 1) 
         error("V0 and W0 must have the same number of rows J.")
     end
@@ -693,16 +721,19 @@ function generic_optimize_locs_widths(X::AbstractArray, Y::AbstractArray,
             ordered=true, replace=false)
         try
             # Represent this as a function so I can get its gradient for later
-            s(nt::NamedTuple) = func_obj(X[ind, :], Y[ind, :], nt.Vth, nt.Wth, nt.gwidthx_th,
-                nt.gwidthy_th, reg, n, J)
+            s(nt::NamedTuple) = func_obj(X[ind, :], Y[ind, :], nt.V, nt.W, nt.gwidthx,
+                nt.gwidthy, reg, n, J)
             # @time (
-            params = (Vth = Vth, Wth = Wth,
-                gwidthx_th = gwidthx_th^2, gwidthy_th = gwidthy_th^2)
+            # println("The type of Vth is $(typeof(Vth))")
+            # println("The type of Wth is $(typeof(Wth))")
+            params = (V = Vth, W = Wth,
+                gwidthx = gwidthx_th^2, gwidthy = gwidthy_th^2)
             S, gradient = Flux.withgradient(s, params)
+            # println("calculated gradient!")
             g = gradient[1]
 
-            g_V = g.Vth;               g_W = g.Wth
-            g_gwidthx = g.g_widthx_th; g_gwidthy = g.g_widthy_th
+            g_V = g.V;             g_W = g.W
+            g_gwidthx = g.gwidthx; g_gwidthy = g.gwidthy
 
             # updates
             Vth .+= (V_step / it^step_pow / sqrt(mapreduce(x -> x^2, +, g_V))) .* g_V
@@ -741,35 +772,81 @@ function func_obj(Xth::AbstractArray, Yth::AbstractArray, Vth::AbstractArray,
     """
     https://github.com/wittawatj/fsic-test/blob/master/fsic/indtest.py#L242-L277
     """
-    diag_regth = regth .* eye(J)
-    # println("Type of diag_regth is: $(typeof(diag_regth))")
+    # println("Begin function func_obj()")
+    # println("Calculating diag_regth...")
+    diag_regth = regth .* CuMatrix(1.0I, J, J)
+    # println("Calculating Kth...")
     Kth = rbf_dot(Xth, Vth, gwidthx_th)
+    # println("Calculating Lth...")
     Lth = rbf_dot(Yth, Wth, gwidthy_th)
 
+    # println("Calculating mean_k...")
     mean_k = mean(Kth, dims=1)
+    # println("Calculating mean_l...")
     mean_l = mean(Lth, dims=1)
+    # println("Calculating KLth...")
     KLth = Kth .* Lth
+    # println("Calculating u...")
     u = mean(KLth, dims=1) .- mean_k .* mean_l
 
-    Kth .-= mean_k
-    Lth .-= mean_l
+    # println("Calculating Kth_norm...")
+    Kth_norm = Kth .- mean_k
+    # println("Calculating Lth_norm...")
+    Lth_norm = Lth .- mean_l
     # Gam is n x J
-    Gam = Kth .* Lth .- u
-    mean_gam = mean(Gam, dims=1)
-    Gam .-= mean_gam
+    # println("Calculating Gam...")
+    Gam = (Kth_norm .* Lth_norm .- u) .- mean(Kth_norm .* Lth_norm .- u, dims=1)
+    # println("Calculating Sig...")
     Sig = Gam' * Gam ./ Float64(n)
     # println("Type of Sig is: $(typeof(Sig))")
-    cuinv(Sig .+ diag_regth) * u' * u / Float64(n)
+    # println("Calculating output...")
+    out = dot(gpu(inv(cpu(Sig .+ diag_regth))) * u', u) / Float64(n)
+    # println("Done!")
+    out
 end
+
+# function func_obj_with_grad(Xth::AbstractArray, Yth::AbstractArray, Vth::AbstractArray,
+#         Wth::AbstractArray, gwidthx_th::Float64, gwidthy_th::Float64,
+#         regth::Float64, n::Int64, J::Int64)
+#     """
+#     https://github.com/wittawatj/fsic-test/blob/master/fsic/indtest.py#L242-L277
+#     """
+#     diag_regth = regth .* eye(J)
+#     # println("Type of diag_regth is: $(typeof(diag_regth))")
+#     Kth = rbf_dot(Xth, Vth, gwidthx_th)
+#     Lth = rbf_dot(Yth, Wth, gwidthy_th)
+
+#     mean_k = mean(Kth, dims=1)
+#     mean_l = mean(Lth, dims=1)
+#     KLth = Kth .* Lth
+#     u = mean(KLth, dims=1) .- mean_k .* mean_l
+
+#     Kth .-= mean_k
+#     Lth .-= mean_l
+#     # Gam is n x J
+#     Gam = Kth .* Lth .- u
+#     mean_gam = mean(Gam, dims=1)
+#     Gam .-= mean_gam
+#     Sig = Gam' * Gam ./ Float64(n)
+#     # println("Type of Sig is: $(typeof(Sig))")
+#     cuinv(Sig .+ diag_regth) * u' * u / Float64(n)
+# end
 
 function cuinv(A::CuMatrix{Float64})
     """
     https://discourse.julialang.org/t/cuda-matrix-inverse/53341
     """
     if size(A, 1) != size(A, 2) throw(ArgumentError("Matrix not square.")) end
+    println("Calculating B...")
     B = eye(size(A, 1))
     # println("type of B is: $(typeof(B))")
     # B = CuArray(Matrix{T}(I(size(m,1))))
-    A, ipiv = CUDA.CUSOLVER.getrf!(A)
-    CUDA.CUSOLVER.getrs!('N', A, ipiv, Float64.(B))
+    println("Calculating A_rf and ipiv...")
+    A_rf, ipiv = CUDA.CUSOLVER.getrf!(A)
+    println("Calculating output...")
+    out = CUDA.CUSOLVER.getrs!('N', A_rf, ipiv, Float64.(B))
+    println("done!")
+    return out
 end
+
+# ChainRulesCore.rrule(::typeof(reduce), ::typeof(+), x::AbstractArray; dims=:) = ChainRulesCore.rrule(sum, x; dims)
