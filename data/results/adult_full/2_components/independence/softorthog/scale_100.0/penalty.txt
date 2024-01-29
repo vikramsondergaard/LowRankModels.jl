@@ -1,0 +1,3 @@
+Loss: 2.6059189689671462e6
+Fairness penalty (unscaled): 159.93651604188287
+Fairness penalty (scaled): 0.49119043039796956
