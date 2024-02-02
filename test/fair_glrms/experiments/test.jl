@@ -29,6 +29,15 @@ function parse_commandline()
             nargs = 0
             help = "whether to use the GPU or not (will cause errors if you don't have a CUDA driver)"
             action = :store_true
+        "-c", "--cluster"
+            arg_type = Int
+            help = "(for ad observatory data) whether to use a certain WAIST interest data set or not"
+            default = 0
+        "-w", "--weights"
+            nargs = '+'
+            arg_type = Float64
+            help = "the weights used for Buet-Golfouse and Utyagulov's fair GLRM (2022) (if this isn't provided, just splits weights evenly, recreating vanilla GLRM)"
+            required = false
     end
     return parse_args(s)
 end
@@ -41,6 +50,38 @@ function standardise!(data::DataFrame, rl::Int64)
     data
 end
 
+function test(test_reg::String)
+    args = parse_commandline()
+
+    Random.seed!(1)
+
+    d = args["data"][1]
+    cluster = args["cluster"]
+    if d == "adult" || d == "adult_low_scale"
+        datapath = "data/adult/adult_trimmed.data"
+        yamlpath = "data/parameters/$(d).yml"
+    elseif startswith(d, "ad_observatory")
+        if cluster == 0
+            datapath = "data/ad_observatory/WAIST_Data_Only_Interests.csv"
+        else
+            datapath = "data/ad_observatory/WAIST_Data_Cluster$(cluster).csv"
+        end
+        yamlpath = "data/parameters/$(d).yml"
+    else
+        error("Expected one of \"adult\", \"adobservatory\" as a value for `data`, but got $(d)!")
+        datapath = ""
+    end
+
+    data = CSV.read(datapath, DataFrame, header=1)
+    params = YAML.load(open(yamlpath))
+    data = dropmissing(data, params["protected_characteristic_idx"])
+
+    rl, bl, cl, ol = parse_losses(params["losses"])
+    losses = [rl..., bl..., cl..., ol...]
+
+    test(test_reg, randn(args["k"], size(data, 1)), randn(args["k"], embedding_dim(losses)))
+end
+
 function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
     args = parse_commandline()
     println(args)
@@ -49,12 +90,17 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
     Random.seed!(1)
 
     d = args["data"][1]
+    cluster = args["cluster"]
     if d == "adult" || d == "adult_low_scale"
         datapath = "data/adult/adult_trimmed.data"
         yamlpath = "data/parameters/$(d).yml"
-    elseif d == "adobservatory"
-        datapath = "data/ad_observatory/WAIST_Data_No_Interests.csv"
-        yamlpath = "data/parameters/ad_observatory_no_interests.yml"
+    elseif startswith(d, "ad_observatory")
+        if cluster == 0
+            datapath = "data/ad_observatory/WAIST_Data_Only_Interests.csv"
+        else
+            datapath = "data/ad_observatory/WAIST_Data_Cluster$(cluster).csv"
+        end
+        yamlpath = "data/parameters/$(d).yml"
     else
         error("Expected one of \"adult\", \"adobservatory\" as a value for `data`, but got $(d)!")
         datapath = ""
@@ -62,13 +108,12 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
 
     data = CSV.read(datapath, DataFrame, header=1)
     params = YAML.load(open(yamlpath))
-    if typeof(params["protected_characteristic_idx"]) <: Array
-        for col in params["protected_characteristic_idx"]
-            deleterows!(data, findall(ismissing, data[:, col]))
-        end
-    else
-        deleterows!(data, findall(ismissing, data[:, params["protected_characteristic_idx"]]))
-    end
+    data = dropmissing(data, params["protected_characteristic_idx"])
+    # delete!(data, findall(x -> !x, data["Observation WAIST - Targeted Interests"]))
+    # print("Does the data now contain missing values?")
+    # for col in params["protected_characteristic_idx"]
+    #     print("The missing indices in $col are $(findall(ismissing, data[:, col]))")
+    # end
     rl, bl, cl, ol = parse_losses(params["losses"])
 
     standardise!(data, length(rl))
@@ -87,9 +132,14 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
         groups = [g[:row_idx] for g in gdf]
         data_copy = nothing # clean it up afterwards so it doesn't take up space
     else
-        groups = partition_groups(data, s, length(unique(data[:, s])))
+        data_copy = copy(data)
+        data_copy[!, :row_idx] = 1:size(data_copy, 1)
+        gdf = groupby(data_copy, names(data_copy)[s])
+        groups = [g[:row_idx] for g in gdf]
+        data_copy = nothing
     end
-    weights = [Float64(length(g)) / m for g in groups]
+    # weights = [Float64(length(g)) / m for g in groups]
+    # println("weights are: $weights")
     p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
 
     fairness = args["fairness"][1]
@@ -97,6 +147,7 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
     println("Starting test for $test_reg using $fairness on the $d dataset at date/time $(now())")
 
     scales = isempty(args["scales"]) ? params["scales"] : args["scales"]
+    weights = isempty(args["weights"]) ? [Float64(length(g)) / m for g in groups] : args["weights"]
 
     for scale in scales
         println("Fitting fair GLRM with scale=$scale")
@@ -113,7 +164,9 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
 
         # relative_scale = scale / m
 
-        if test_reg == "independence"
+        if test_reg == "nothing"
+            regulariser = ZeroColReg()
+        elseif test_reg == "independence"
             if fairness == "hsic"
                 if typeof(params["protected_characteristic_idx"]) <: Array
                     regulariser = [regtype(relative_scale, Float64.(convert(Matrix, data[:, s])), glrmX[i, :], NFSIC) for i=1:k]
@@ -125,14 +178,18 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
             end
         elseif test_reg == "separation"
             if fairness == "hsic"
-                regulariser = [SeparationReg(relative_scale, data[:, s], data[:, y_idx], regtype, get_nfsic(Float32.(CuArray(data[:, s])), Float32.(CuArray(glrmX[i, :])))) for i=1:k]
+                if typeof(params["protected_characteristic_idx"]) <: Array
+                    regulariser = [SeparationReg(relative_scale, convert(Matrix, data[:, s]), data[:, y_idx], regtype, get_nfsic(CuArray(convert(Matrix{Float64}, data[:, s])), (CuArray(glrmX[i, :])))) for i=1:k]
+                else
+                    regulariser = [SeparationReg(relative_scale, Float64.(data[:, s]), data[:, y_idx], regtype, get_nfsic((CuArray(Float64.(data[:, s]))), Float32.(CuArray(glrmX[i, :])))) for i=1:k]
+                end
             else
                 regulariser = SeparationReg(relative_scale, data[:, s], data[:, y_idx], regtype)
             end
         elseif test_reg == "sufficiency"
             separator = params["is_target_feature_categorical"] ? encode_to_one_hot(data[:, y_idx]) : data[:, y_idx]
             if fairness == "hsic"
-                regulariser = [SufficiencyReg(relative_scale, data[:, s], separator, regtype, get_nfsic(Float32.(CuArray(data[:, s])), Float32.(CuArray(glrmX[i, :])))) for i=1:k]
+                regulariser = [SufficiencyReg(relative_scale, data[:, s], separator, regtype, get_nfsic(CuArray(data[:, s]), CuArray(glrmX[i, :]))) for i=1:k]
             else
                 regulariser = SufficiencyReg(relative_scale, data[:, s], separator, regtype)
             end
@@ -152,15 +209,16 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
             Y_init = copy(glrmY)
         end
             
+        alpha = test_reg == "nothing" ? relative_scale : 1000.0
         if d == "adult"
             fglrm = FairGLRM(data, losses, ZeroReg(), ZeroReg(), regulariser, ZeroColReg(), k, s,
-                WeightedLogSumExponentialLoss(10^(-6), weights),
+                WeightedLogSumExponentialLoss(alpha, weights),
                 X=X_init, Y=Y_init, Z=groups)
-        elseif d == "adobservatory"
+        elseif startswith(d, "ad_observatory")
             indices = [(i, j) for i=1:size(data, 1), j=1:size(data, 2)]
             obs = filter(x -> !ismissing(data[x[1], x[2]]), indices)
             fglrm = FairGLRM(data, losses, ZeroReg(), ZeroReg(), regulariser, ZeroColReg(), k, s,
-                WeightedLogSumExponentialLoss(10^(-6), weights),
+                WeightedLogSumExponentialLoss(alpha, weights),
                 X=X_init, Y=Y_init, Z=groups, obs=obs)
         end
 
@@ -168,7 +226,8 @@ function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
         fglrmX, fglrmY, fair_ch = fit!(fglrm, params=p, ch=ch, verbose=true, checkpoint=true)
         reconstructed = fglrmX' * fglrmY
         fname = "projected_data.csv"
-        dir = "data/results/$d/$(args["k"])_components/$test_reg/$(fairness)/scale_$scale"
+        clustername = cluster > 0 ? "cluster_$(cluster)" : "no_interests"
+        dir = "data/results/$d/$(clustername)/$(args["k"])_components/$test_reg/$(fairness)/scale_$scale"
         mkpath(dir)
         fpath = joinpath(dir, fname)
             

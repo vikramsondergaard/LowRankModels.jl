@@ -44,9 +44,14 @@ function test_pca(test_reg::String)
     if d == "adult" || d == "adult_low_scale"
         datapath = "data/adult/adult_trimmed.data"
         yamlpath = "data/parameters/adult.yml"
-    elseif d == "adobservatory"
-        datapath = "data/ad_observatory/WAIST_Data_No_Interests.csv"
-        yamlpath = "data/parameters/ad_observatory_no_interests.yml"
+    elseif startswith(d, "ad_observatory")
+        cluster = args["cluster"]
+        if cluster == 0
+            datapath = "data/ad_observatory/WAIST_Data_Only_Interests.csv"
+        else
+            datapath = "data/ad_observatory/WAIST_Data_Cluster$(cluster).csv"
+        end
+        yamlpath = "data/parameters/$(d).yml"
     else
         error("Expected one of \"adult\", \"adobservatory\" as a value for `data`, but got $(d)!")
         datapath = ""
@@ -54,9 +59,7 @@ function test_pca(test_reg::String)
 
     data = CSV.read(datapath, DataFrame, header=1)
     params = YAML.load(open(yamlpath))
-    for col in params["protected_characteristic_idx"]
-        deleterows!(data, findall(ismissing, data[:, col]))
-    end
+    data = dropmissing(data, params["protected_characteristic_idx"])
     rl, bl, cl, ol = parse_losses(params["losses"])
     losses = [rl..., bl..., cl..., ol...]
 
