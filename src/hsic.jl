@@ -550,6 +550,11 @@ function init_check_subset(X::AbstractArray, Y::AbstractArray, widthx::Float64,
     init_check_subset(X, Y, Float32(widthx), Float32(widthy), n_test_locs, n_cand=n_cand, subsample=subsample, seed=seed)
 end
 function init_check_subset(X::AbstractArray, Y::AbstractArray, widthx::Float32,
+    widthy::Float64, n_test_locs::Int64;
+    n_cand::Int64=50, subsample::Int64=2000, seed::Int64=3)
+init_check_subset(X, Y, widthx, Float32(widthy), n_test_locs, n_cand=n_cand, subsample=subsample, seed=seed)
+end
+function init_check_subset(X::AbstractArray, Y::AbstractArray, widthx::Float32,
         widthy::Float32, n_test_locs::Int64;
         n_cand::Int64=50, subsample::Int64=2000, seed::Int64=3)
     n = size(X, 1)
