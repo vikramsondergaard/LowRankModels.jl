@@ -4,6 +4,8 @@ import YAML
 function test_vanilla_glrm(test_reg::String)
     args = parse_commandline()
 
+    if args["gpu"] using CUDA end
+
     Random.seed!(1)
 
     d = args["data"][1]
@@ -30,6 +32,8 @@ function test_vanilla_glrm(test_reg::String)
     y_idx = params["target_feature"]
     
     p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
+
+    
 
     glrm = GLRM(data, losses, ZeroReg(), ZeroReg(), k)
     glrmX, glrmY, ch = fit!(glrm, params=p, verbose=true)

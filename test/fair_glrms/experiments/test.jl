@@ -25,6 +25,10 @@ function parse_commandline()
             arg_type = Float64
             help = "the scales to use for experiments (if this isn't provided, uses a corresponding YAML file instead)"
             required = false
+        "-g", "--gpu"
+            nargs = 0
+            help = "whether to use the GPU or not"
+            action = :store_true
     end
     return parse_args(s)
 end
@@ -40,6 +44,8 @@ end
 function test(test_reg::String, glrmX::AbstractArray, glrmY::AbstractArray)
     args = parse_commandline()
     println(args)
+
+    if args["gpu"] using CUDA end
 
     Random.seed!(1)
 
