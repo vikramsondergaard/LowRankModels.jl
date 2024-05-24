@@ -10,18 +10,22 @@ using Random
 using Statistics
 using DataFrames
 using ArgParse
+using CUDA
+using JLD
+using Flux
+using ChainRulesCore
 
 import LinearAlgebra: dot, norm, Diagonal, rmul!, mul!, tr
 import Base: show
-import StatsBase: fit!, mode, mean, var, std
+import StatsBase: fit!, mode, mean, var, std, sample
 
 # define losses, regularizers, convergence history
 include("domains.jl")
 include("losses.jl")
 include("impute_and_err.jl")
+include("hsic.jl")
 include("regularizers.jl")
 include("convergence.jl")
-include("hsic.jl")
 include("group_functionals.jl")
 
 # define basic data type(s)

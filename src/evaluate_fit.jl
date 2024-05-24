@@ -1,4 +1,4 @@
-export objective, error_metric, impute, impute_missing
+export objective, objective!, error_metric, impute, impute_missing
 
 ### OBJECTIVE FUNCTION EVALUATION FOR MPCA
 function objective(glrm::GLRM, X::Array{Float64,2}, Y::Array{Float64,2},
@@ -22,12 +22,39 @@ function objective(glrm::GLRM, X::Array{Float64,2}, Y::Array{Float64,2},
     return err
 end
 
+function objective!(glrm::GLRM, X::CuDeviceMatrix{Float64,1}, Y::CuDeviceMatrix{Float64,1},
+        XY::CuDeviceMatrix{Float64,1}, err::Float64;
+        yidxs = get_yidxs(glrm.losses), # mapping from columns of A to columns of Y; by default, the identity
+        include_regularization=true)
+    m,n = size(glrm.A)
+    @assert(size(XY)==(m,yidxs[end][end]))
+    @assert(size(Y)==(glrm.k,yidxs[end][end]))
+    @assert(size(X)==(glrm.k,m))
+    err = 0.0
+    indexx = threadIdx().x
+    stridex = blockDim().x
+    indexy = threadIdx().y
+    stridey = blockDim().y
+    for j = indexx:stridex:n
+        for i = indexy:stridey:length(glrm.observed_examples[j])
+            err += evaluate(glrm.losses[j], XY[glrm.observed_examples[j][i],yidxs[j]], glrm.A[glrm.observed_examples[j][i],j])
+        end
+    end
+    # add regularization penalty
+    if include_regularization
+        err += calc_penalty(glrm,X,Y; yidxs = yidxs)
+    end
+end
+
 function objective(fglrm::FairGLRM, X::Array{Float64,2}, Y::Array{Float64,2},
                    XY::Array{Float64,2};
                    yidxs = get_yidxs(fglrm.losses), # mapping from columns of A to columns of Y; by default, the identity
                    include_regularization=true)
     m,n = size(fglrm.A)
     @assert(size(XY)==(m,yidxs[end][end]))
+    println("value of k is $(fglrm.k)")
+    println("value of yidxs[end][end] is $(yidxs[end][end])")
+    println("size of Y is $(size(Y))")
     @assert(size(Y)==(fglrm.k,yidxs[end][end]))
     @assert(size(X)==(fglrm.k,m))
     # Use the provided group functional to evaluate the total loss
@@ -61,21 +88,22 @@ function row_objective(glrm::AbstractGLRM, i::Int, x::AbstractArray, Y::Array{Fl
     return err
 end
 
-function row_objective(fglrm::FairGLRM, i::Int, X::Array{Float64, 2}, Y::Array{Float64,2} = fglrm.Y;
-                       yidxs = get_yidxs(fglrm.losses), # mapping from columns of A to columns of Y; by default, the identity
-                       include_regularization=true)
-    x = X[:, i]
+function row_objective(fglrm::FairGLRM, i::Int, x::AbstractArray, vk::AbstractArray, Y::Array{Float64,2} = fglrm.Y;
+        yidxs = get_yidxs(fglrm.losses), # mapping from columns of A to columns of Y; by default, the identity
+        include_regularization=true)
     XY = x'*Y
+    err = 0.0
     # Use the provided group functional to evaluate the total loss
-    xy = []
-    for yidx in yidxs
-        push!(xy, XY[yidx])
+    for j in fglrm.observed_features[i]
+        err += evaluate(fglrm.losses[j], XY[1,yidxs[j]], fglrm.A[i,j])
     end
-    err = evaluate(fglrm.group_functional, fglrm.losses, xy, fglrm.A[i, :], [Set(1)], fglrm.observed_features[i], yidxs=yidxs)
-    # add regularization penalty
+    # xy = []
+    # for yidx in yidxs push!(xy, XY[yidx]) end
+    # err = evaluate(fglrm.group_functional, fglrm.losses, xy, fglrm.A[i, :], [Set(1)], fglrm.observed_features[i], yidxs=yidxs)
+    # # add regularization penalty
     if include_regularization
         err += evaluate(fglrm.rx[i], x)
-        err += sum(evaluate(fglrm.rkx[k], X[k, :]) for k=1:fglrm.k) / size(X, 2)
+        err += sum(evaluate(fglrm.rkx[k], vk[k]) for k=1:fglrm.k) / size(x, 1)
     end
     return err
 end
@@ -125,6 +153,7 @@ function col_objective(fglrm::FairGLRM, j::Int, y::AbstractArray, X::Array{Float
     @inbounds Aj = convert(Array, fglrm.A[obsex,j])
     if length(sz) == 1 feature_dims = 1 else feature_dims = length(colind) end
     err = evaluate(fglrm.group_functional, [fglrm.losses[j]], XYj, Aj, groups, ones(Int64, feature_dims, length(obsex)), yidxs=[colind])
+    # err = evaluate(fglrm.losses[j], XYj, Aj)
     # add regularization penalty
     if include_regularization
         err += evaluate(fglrm.ry[j], y)
