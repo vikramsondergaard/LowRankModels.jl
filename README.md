@@ -20,6 +20,8 @@ A description of each parameter is given in the table below:
 |    `-x`      |   `startX`   | A starting matrix for *A*. | An *m* × *k* matrix of real numbers.|
 |    `-y`      |   `startY`   | A starting matrix for *B*. | An *n* × *k* matrix of real numbers.|
 
+`fairness` is not strictly a parameter, however, there are separate files that provide an implementation of PEFDP using the given notion of fairness from Barocas et al. (2019). The files are named `test_independence.jl`, `test_separation.jl`, `test_sufficiency.jl`.
+
 ## Setting Up
 
 This work requires access to a GPU. I have tested this work on the ANU School of Computing (SoCo) cluster, and will provide extra support for this infrastructure. Please feel free to reach out at `<my first name>.<my last name>@anu.edu.au` if you need any support.
