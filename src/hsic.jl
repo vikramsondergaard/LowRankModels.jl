@@ -54,6 +54,10 @@ get_independence_criterion(Y::AbstractArray{Float64, 2}, X::AbstractArray{Float3
     get_independence_criterion(Float32.(Y), X[:, :], ic)
 get_independence_criterion(Y::AbstractArray{Float64, 2}, X::AbstractArray{Float64, 1}, ic::DataType) =
     get_independence_criterion(Float32.(Y), Float32.(X)[:, :], ic)
+get_independence_criterion(Y::AbstractArray{Bool, 1}, X::AbstractArray{Float64, 1}, ic::DataType) =
+    get_independence_criterion(Float32.(Y), Float32.(X)[:,:], ic)
+get_independence_criterion(Y::AbstractArray{Bool, 2}, X::AbstractArray{Float64, 1}, ic::DataType) =
+    get_independence_criterion(Float32.(Y), Float32.(X)[:,:], ic)
 
 eye(n::Int64) = CuMatrix(I, n, n)
 
@@ -119,17 +123,23 @@ function get_width(M::AbstractArray)
 
     https://github.com/amber0309/HSIC/blob/master/HSIC.py
     """
-    G = mapreduce(identity, +, M .* M; dims=2)
+    G = sum(M .* M; dims=2)
+    MM = M * M'
 
-    dists = (G .+ G') .- (2 .* (M * M'))
-    dists .-= tril(dists)
-    dists = filter(d -> d > 0, dists)
+    dists = triu((G .+ G') .- (2 .* MM), 1)[:]
+    filter!(d -> d > 0, dists)
+    # fdists = dists[dists .> 0]
+    # dists = filter(d -> d > 0, triu(dists, 1))
+    # dists = dists[dists .> 0]
 
-    if isempty(dists)
-        return 0
-    else
-        return sqrt(0.5 * median(dists))
-    end
+    if isempty(dists) return 0 end
+    return sqrt(0.5 * median(dists))
+
+    # if isempty(fdists)
+    #     return 0
+    # else
+    #     return sqrt(0.5 * median(fdists))
+    # end
 end
 
 function evaluate(hsic::HSIC, X::AbstractArray{Float32};
@@ -269,12 +279,6 @@ struct NFSIC <: IndependenceCriterion
     width_x::Float64
     width_y::Float64
 end
-function get_nfsic(Y::AbstractArray)
-    # width_y = get_width(Y)
-    idxs = rand(1:size(Y, 1), 1250)
-    W = CuArray(Y[idxs, :])
-    get_nfsic(Y, W, Float64(var(Y)))
-end
 function get_nfsic(Y::AbstractArray, X::AbstractArray)
     V, W, width_x, width_y = optimize_locs_widths(X, Y, n_test_locs=2, max_iter=2000, tol_fun=1e-4)
     L = rbf_dot(Y, W, sqrt(width_y))
@@ -286,16 +290,6 @@ function get_nfsic(Y::AbstractArray, V::AbstractArray, W::AbstractArray, width_x
     mean_l = mean(L, dims=1)
     NFSIC(L, mean_l, L .- mean_l, V, W, width_x, width_y)
 end
-# get_nfsic(Y::AbstractArray{Float64}, W::AbstractArray{Float32}) = get_nfsic(Float32.(Y), W)
-# get_nfsic(Y::AbstractArray{Float32}, W::AbstractArray{Float64}) = get_nfsic(Y, Float32.(W))
-# get_nfsic(Y::AbstractArray{Float64}, W::AbstractArray{Float64}) = get_nfsic(Float32.(Y), Float32.(W))
-
-# function evaluate(nfsic::NFSIC, X::AbstractArray{Float32}; optim=false, reg=1)
-#     n = size(X, 1)
-#     idxs = rand(1:n, 1250)
-#     V = CuArray(X[idxs, :])
-#     evaluate(nfsic, X, V)
-# end
 
 function evaluate(nfsic::NFSIC, X::AbstractArray{Float64}; reg=1)
     evaluate(nfsic, Float32.(X), reg=reg)
@@ -304,7 +298,6 @@ end
 function evaluate(nfsic::NFSIC, X::AbstractArray{Float32}; reg=1)
     n = size(X, 1)
     J = size(nfsic.V, 1)
-    # width_x = get_width(X)
     
     K = rbf_dot(X, nfsic.V, nfsic.width_x) # n x J
     L = nfsic.L                            # n x J
@@ -464,10 +457,10 @@ function optimize_locs_widths(X::AbstractArray, Y::AbstractArray;
     # set the width bounds
     fac_min = 5.0e-2
     fac_max = 5.0e3
-    gwidthx_lb = gwidthx_lb == nothing ? fac_min * medx2 : gwidthx_lb
-    gwidthy_lb = gwidthy_lb == nothing ? fac_min * medy2 : gwidthy_lb
-    gwidthx_ub = gwidthx_ub == nothing ? fac_max * medx2 : gwidthx_lb
-    gwidthy_ub = gwidthy_ub == nothing ? fac_max * medy2 : gwidthy_ub
+    gwidthx_lb = gwidthx_lb === nothing ? fac_min * medx2 : gwidthx_lb
+    gwidthy_lb = gwidthy_lb === nothing ? fac_min * medy2 : gwidthy_lb
+    gwidthx_ub = gwidthx_ub === nothing ? fac_max * medx2 : gwidthx_lb
+    gwidthy_ub = gwidthy_ub === nothing ? fac_max * medy2 : gwidthy_ub
 
     V, W, width_x, width_y = generic_optimize_locs_widths(X, Y, V, W,
         best_widthx, best_widthy, func_obj; 
@@ -573,7 +566,7 @@ function init_check_subset(X::AbstractArray, Y::AbstractArray, widthx::Float32,
             nfsic = get_nfsic(Y, V, W, widthx, widthy)
             obj_joint = evaluate(nfsic, X; reg=0)
         end
-        if obj_joint > best_obj_joint || best_V_joint == nothing
+        if obj_joint > best_obj_joint || best_V_joint === nothing
             best_V_joint = V
             best_W_joint = W
             best_obj_joint = obj_joint
@@ -593,7 +586,7 @@ function init_check_subset(X::AbstractArray, Y::AbstractArray, widthx::Float32,
             nfsic = get_nfsic(Y, V, W, widthx, widthy)
             obj_prod = evaluate(nfsic, X; reg=0)
         end
-        if obj_prod > best_obj_prod || best_V_prod == nothing
+        if obj_prod > best_obj_prod || best_V_prod === nothing
             best_V_prod = V
             best_W_prod = W
             best_obj_prod = obj_prod
