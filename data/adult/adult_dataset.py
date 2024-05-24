@@ -1,8 +1,10 @@
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
 import re
+from sklearn.preprocessing import StandardScaler
 from collections import OrderedDict
+from os import makedirs
+
 def _filter_features_by_prefixes(df, prefixes):
     res = []
     for name in df.columns:
@@ -286,6 +288,8 @@ def main():
     s_column_names = ["sensitive"]
     y_column_names = ["label"]
     for i in range(10):
+        makedirs(f'splits/{i}/original/', exist_ok=True)
+        makedirs(f'splits/{i}/results/', exist_ok=True)
         train_df, _, test_df, _ = load_dataset(train_path, test_path, validation_size,
                                                RANDOM_SEEDS[i], data_name, feature_split,
                                                remake_test=True, test_size=test_size)
