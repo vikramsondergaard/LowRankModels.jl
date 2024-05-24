@@ -1,4 +1,4 @@
-using LowRankModels, Statistics, Random, CSV, DataFrames, Tables, ArgParse, Dates, Missings
+using LowRankModels, Statistics, Random, CSV, DataFrames, Tables, ArgParse, Dates, Missings, JSON
 import YAML
 
 export test_pca
@@ -28,22 +28,18 @@ function test_pca(test_reg::String)
 
     Random.seed!(1)
 
-    ###### HEY! LOOK AT ME!
-    ###############
-    # This is a reminder of what you need to do when you get back to your 
-    # desk.
-    #
-    # You're running independence and separation experiments with HSIC on
-    # full-sized data. (tabs 3 and 1 respectively, you disorganised fool)
-    #
-    # Once these are done, `scp` them over to your `adult_full` directory
-    # on your laptop. Then run the classifier on them to check their
-    # results. Expecting particularly good things from the separation run!
-
     d = args["data"][1]
+    seed = args["seed"][1]
     if d == "adult" || d == "adult_low_scale"
-        datapath = "data/adult/adult_trimmed.data"
-        yamlpath = "data/parameters/adult.yml"
+        datapath = "data/adult/splits/$(seed)/original/x_train.csv"
+        s_path = "data/adult/splits/$(seed)/original/s_train.csv"
+        y_path = "data/adult/splits/$(seed)/original/y_train.csv"
+        yamlpath = "data/parameters/$(d).yml"
+    elseif d == "adult_test"
+        datapath = "data/adult/splits/$(seed)/original/x_test.csv"
+        s_path = "data/adult/splits/$(seed)/original/s_test.csv"
+        y_path = "data/adult/splits/$(seed)/original/y_test.csv"
+        yamlpath = "data/parameters/adult_test.yml"
     elseif startswith(d, "ad_observatory")
         cluster = args["cluster"]
         if cluster == 0
@@ -59,7 +55,17 @@ function test_pca(test_reg::String)
 
     data = CSV.read(datapath, DataFrame, header=1)
     params = YAML.load(open(yamlpath))
-    data = dropmissing(data, params["protected_characteristic_idx"])
+    s = CSV.read(s_path, DataFrame, header=1)
+    y = CSV.read(y_path, DataFrame, header=1)
+    # data = dropmissing(data, params["protected_characteristic_idx"])
+    missing_indices = Set{Int}()
+    for name in names(s)
+        inds = findall(ismissing, s[:, name])
+        for ind in inds push!(missing_indices, ind) end
+    end
+    # Need to drop indices of the data that are missing in the protected characteristic
+    delete!(data, sort(collect(missing_indices)))
+    dropmissing!(s)
     rl, bl, cl, ol = parse_losses(params["losses"])
     losses = [rl..., bl..., cl..., ol...]
 
@@ -67,19 +73,11 @@ function test_pca(test_reg::String)
     cl_end = cl_start + length(cl) - 1
     df_names = names(data)
     cat_names = df_names[cl_start:cl_end]
-    for (i, cat_name) in enumerate(cat_names)
-        outnames = onehot!(data, cat_name)
-        # select!(data, df_names[1:cl_start-2+i], outnames, :)
-    end
+
     df_names = names(data)
     len_ol = length(ol)
-    select!(data, df_names[1:cl_start-1], df_names[cl_start+len_ol:end], df_names[cl_start:cl_start+len_ol-1])
-    standardise!(data, size(data, 2))
-    # display(data)
 
-    s = params["protected_characteristic_idx"]
     k = args["k"]
-    y_idx = params["target_feature"]
     
     p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
 
@@ -99,37 +97,6 @@ function test_pca(test_reg::String)
     mkpath(dir)
     fname = "pca_penalty.txt"
     fpath = joinpath(dir, fname)
-
-    # if fairness == "hsic"
-    #     regtype = HSICReg
-    # elseif fairness == "orthog"
-    #     regtype = OrthogonalReg
-    # elseif fairness == "softorthog"
-    #     regtype = SoftOrthogonalReg
-    # end
-
-    # if test_reg == "independence"
-    #     if typeof(params["protected_characteristic_idx"]) <: Array
-    #         regulariser = regtype(1.0, normalise(convert(Matrix, data[:, s])))
-    #     else
-    #         regulariser = regtype(1.0, normalise(data[:, s]))
-    #     end
-    # elseif test_reg == "separation"
-    #     regulariser = SeparationReg(1.0, data[:, s], data[:, y_idx], regtype)
-    # elseif test_reg == "sufficiency"
-    #     separator = params["is_target_feature_categorical"] ? encode_to_one_hot(data[:, y_idx]) : data[:, y_idx]
-    #     regulariser = SufficiencyReg(1.0, data[:, s], separator, regtype)
-    # else
-    #     error("Regulariser $test_reg not implemented yet!")
-    #     regulariser = nothing
-    # end
-
-    # total_orthog = sum(evaluate(regulariser, glrmX[i, :]) for i=1:k)
-
-    # println("Penalty for PCA (without scaling) is $total_orthog")
-
-    data = CSV.read(datapath, DataFrame, header=1)
-    standardise!(data, length(rl))
     
     open(fpath, "w") do file
         # penalty = "Fairness penalty (unscaled): $total_orthog"

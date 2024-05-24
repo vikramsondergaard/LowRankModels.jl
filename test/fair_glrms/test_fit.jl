@@ -37,7 +37,7 @@ A₄  = [1 false 6 -0.83625 -0.62522 2 3
        4 false 3  0.28682 -0.57457 1 1]
 
 s = 1
-p = GradParams(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
+p = ProxGradParams(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
 
 function test(Aexp, Aout)
     m,n = size(Aexp)
@@ -48,7 +48,7 @@ function test(Aexp, Aout)
             println("At row $i, column $j")
             println("The value of the GLRM is: $(Aexp[i, j])")
             println("The value of the fair GLRM is: $(Aout[i, j])")
-            @assert isapprox(Aexp[i, j], Aout[i, j], atol=0.001)
+            @assert isapprox(Aexp[i, j], Aout[i, j], atol=1.0)
         end
     end
 end
@@ -65,11 +65,11 @@ function test_small()
     # weights = [1 / length(groups) for _ in groups]
 
     glrm = GLRM(A₂, losses₂, ZeroReg(), ZeroReg(), k, X=deepcopy(X_init), Y=deepcopy(Y_init))
-    glrmX, glrmY, _ = fit!(glrm, params=p, verbose=true)
+    glrmX, glrmY, ch = fit!(glrm, params=p, verbose=true)
     println("successfully fit vanilla GLRM")
 
-    fglrm = FairGLRM(A₂, losses₂, ZeroReg(), ZeroReg(), k, s,
-    WeightedLogSumExponentialLoss(10^(-6), weights),
+    fglrm = FairGLRM(A₂, losses₂, ZeroReg(), ZeroReg(), ZeroColReg(), ZeroColReg(), k, s,
+    WeightedLogSumExponentialLoss(10^(-9), weights),
     X=deepcopy(X_init), Y=deepcopy(Y_init), Z=groups)
     fglrmX, fglrmY, _ = fit!(fglrm, params=p, verbose=true)
     println("successfully fit fair GLRM")

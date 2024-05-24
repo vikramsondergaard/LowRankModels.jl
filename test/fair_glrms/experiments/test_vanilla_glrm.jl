@@ -1,26 +1,44 @@
 using LowRankModels, Statistics, Random, CSV, DataFrames, Tables, ArgParse, Dates, CUDA, Missings
 import YAML
 
-function test_vanilla_glrm(test_reg::String)
+function test_vanilla_glrm()
     args = parse_commandline()
     println(args)
-
-    if args["gpu"] using CUDA end
 
     Random.seed!(1)
 
     d = args["data"][1]
+    seed = args["seed"][1]
     if d == "adult" || d == "adult_low_scale"
-        datapath = "data/adult/adult_trimmed.data"
-        yamlpath = "data/parameters/adult.yml"
-    elseif startswith(d, "ad_observatory")
-        cluster = args["cluster"]
-        if cluster == 0
-            datapath = "data/ad_observatory/WAIST_Data_Only_Interests.csv"
-        else
-            datapath = "data/ad_observatory/WAIST_Data_Cluster$(cluster).csv"
-        end
+        datapath = "data/adult/splits/$(seed)/original/x_train.csv"
+        s_path = "data/adult/splits/$(seed)/original/s_train.csv"
+        y_path = "data/adult/splits/$(seed)/original/y_train.csv"
         yamlpath = "data/parameters/$(d).yml"
+        savename = "adult/splits/$(seed)"
+    elseif d == "adult_test"
+        datapath = "data/adult/splits/$(seed)/original/x_test.csv"
+        s_path = "data/adult/splits/$(seed)/original/s_test.csv"
+        y_path = "data/adult/splits/$(seed)/original/y_test.csv"
+        yamlpath = "data/parameters/adult_test.yml"
+        savename = "adult/splits/$(seed)"
+    elseif d == "celeba"
+        datapath = "data/celeba/splits/$(seed)/original/x_train.csv"
+        s_path = "data/celeba/splits/$(seed)/original/s_train.csv"
+        y_path = "data/celeba/splits/$(seed)/original/y_train.csv"
+        savename = "celeba/splits/$(seed)"
+        yamlpath = "data/parameters/celeba.yml"
+    elseif d == "celeba_test"
+        datapath = "data/celeba/splits/$(seed)/original/x_test.csv"
+        s_path = "data/celeba/splits/$(seed)/original/s_test.csv"
+        y_path = "data/celeba/splits/$(seed)/original/y_test.csv"
+        savename = "celeba/splits/$(seed)"
+        yamlpath = "data/parameters/celeba.yml"
+    elseif d == "toy_data"
+        datapath = "data/$(d)/x_train.csv"
+        s_path = "data/$(d)/s_train.csv"
+        y_path = "data/$(d)/s_train.csv"
+        yamlpath = "data/parameters/$(d).yml"
+        savename = "toy_data"
     else
         error("Expected one of \"adult\", \"adobservatory\" as a value for `data`, but got $(d)!")
         datapath = ""
@@ -28,7 +46,17 @@ function test_vanilla_glrm(test_reg::String)
 
     data = CSV.read(datapath, DataFrame, header=1)
     params = YAML.load(open(yamlpath))
-    data = dropmissing(data, params["protected_characteristic_idx"])
+    s = CSV.read(s_path, DataFrame, header=1)
+    y = CSV.read(y_path, DataFrame, header=1)
+    # data = dropmissing(data, params["protected_characteristic_idx"])
+    missing_indices = Set{Int}()
+    for name in names(s)
+        inds = findall(ismissing, s[:, name])
+        for ind in inds push!(missing_indices, ind) end
+    end
+    # Need to drop indices of the data that are missing in the protected characteristic
+    delete!(data, sort(collect(missing_indices)))
+    dropmissing!(s)
    #  delete!(data, findall(x -> !x, data["Observation WAIST - Targeted Interests"]))
     rl, bl, cl, ol = parse_losses(params["losses"])
 
@@ -36,9 +64,7 @@ function test_vanilla_glrm(test_reg::String)
 
     losses = [rl..., bl..., cl..., ol...]
 
-    s = params["protected_characteristic_idx"]
     k = args["k"]
-    y_idx = params["target_feature"]
     
     p = Params(1, max_iter=200, abs_tol=0.0000001, min_stepsize=0.001)
     # X_init = randn(Float64, k, size(data, 1))
@@ -53,7 +79,9 @@ function test_vanilla_glrm(test_reg::String)
     #     Y_init = randn(Float64, k, size(data, 2))
     # end
 
-    if d == "adult"
+    println("The number of columns in the data is $(size(data, 2))")
+    println("The number of dimensions in the losses is $(embedding_dim(losses))")
+    if startswith(d, "adult") || startswith(d, "celeba")
         glrm = GLRM(data, losses, ZeroReg(), ZeroReg(), k; X=X_init, Y=Y_init)
     else
         indices = [(i, j) for i=1:size(data, 1), j=1:size(data, 2)]
@@ -66,44 +94,15 @@ function test_vanilla_glrm(test_reg::String)
 
     fairness = args["fairness"][1]
 
-    dir = "data/results/$d/$(args["k"])_components/$test_reg/$(fairness)/benchmarks"
+    fname = d == "adult_test" ? "x_test.csv" : "x_train.csv"
+    dir = "data/$(savename)/results/$(k)_components"
     mkpath(dir)
-    fname = "vanilla_glrm_penalty.txt"
-    fpath = joinpath(dir, fname)
-
-    # if fairness == "hsic"
-    #     regtype = HSICReg
-    # elseif fairness == "orthog"
-    #     regtype = OrthogonalReg
-    # elseif fairness == "softorthog"
-    #     regtype = SoftOrthogonalReg
-    # end
-
-    # if test_reg == "independence"
-    #     if typeof(params["protected_characteristic_idx"]) <: Array
-    #         regulariser = regtype(1.0, normalise(convert(Matrix, data[:, s])))
-    #     else
-    #         regulariser = regtype(1.0, normalise(data[:, s]))
-    #     end
-    # elseif test_reg == "separation"
-    #     regulariser = SeparationReg(1.0, data[:, s], data[:, y_idx], regtype)
-    # elseif test_reg == "sufficiency"
-    #     separator = params["is_target_feature_categorical"] ? encode_to_one_hot(data[:, y_idx]) : data[:, y_idx]
-    #     regulariser = SufficiencyReg(1.0, data[:, s], separator, regtype)
-    # else
-    #     error("Regulariser $test_reg not implemented yet!")
-    #     regulariser = nothing
-    # end
-
-    # total_orthog = sum(evaluate(regulariser, glrmX[i, :]) for i=1:k)
-
-    # println("Penalty for vanilla GLRM (without scaling) is $total_orthog")
-    
-    open(fpath, "w") do file
-        # penalty = "Fairness penalty (unscaled): $total_orthog"
-        penalty = ""
-        write(file, "Loss: $(ch.objective[end])\n$penalty")
-    end
+    xname = d == "adult_test" ? "vanilla_glrmX_test.csv" : "vanilla_glrmX.csv"
+    yname = d == "adult_test" ? "vanilla_glrmY_test.csv" : "vanilla_glrmY.csv"
+    xpath = joinpath(dir, xname)
+    ypath = joinpath(dir, yname)
+    CSV.write(xpath, Tables.table(glrmX))
+    CSV.write(ypath, Tables.table(glrmY))
 
     println("Resulting shape of glrmY is $(size(glrmY))")
 

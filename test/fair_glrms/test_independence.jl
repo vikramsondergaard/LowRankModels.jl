@@ -45,6 +45,8 @@ A₄_ord = [2 3
           2 5
           1 1]
 
+normalise(A::AbstractArray) = A .- mean(A)
+
 function test(A::AbstractArray, losses::Array{Loss, 1}, s::Int64, k::Int64,
         r::ColumnRegularizer)
     m, n = size(A)
@@ -283,7 +285,7 @@ function test_adult_orthog()
     glrm = GLRM(A, losses, ZeroReg(), ZeroReg(), k)
     glrmX, glrmY, ch = fit!(glrm, params=p, verbose=false)
     println("successfully fit vanilla GLRM")
-    total_orthog = sum(evaluate(OrthogonalReg(1.0, A[:, s]), glrmX[i, :]) for i=1:k)
+    total_orthog = sum(evaluate(OrthogonalReg(1.0, normalise(A[:, s])), glrmX[i, :]) for i=1:k)
     println("Independence penalty (without scaling) is $total_orthog")
 
     fname = "penalty_adult_independence_orthog.txt"
@@ -337,7 +339,7 @@ function test_adult_softorthog()
     for scale in scales
         println("Fitting independent fair GLRM with scale=$scale")
         
-        fglrm = FairGLRM(A, losses, ZeroReg(), ZeroReg(), SoftOrthogonalReg(scale, A[:, s]), ZeroColReg(), k, s,
+        fglrm = FairGLRM(A, losses, ZeroReg(), ZeroReg(), SoftOrthogonalReg(scale, normalise(A[:, s])), ZeroColReg(), k, s,
             WeightedLogSumExponentialLoss(10^(-6), weights),
             X=X_init, Y=Y_init, Z=groups)
         
@@ -358,7 +360,7 @@ function test_adult_softorthog()
         dir = "data/results/penalties"
         fpath = joinpath(dir, fname)
 
-        total_orthog = sum(evaluate(SoftOrthogonalReg(scale, A[:, s]), glrmX[i, :]) for i=1:k) / scale
+        total_orthog = sum(evaluate(SoftOrthogonalReg(scale, normalise(A[:, s])), glrmX[i, :]) for i=1:k) / scale
         println("Independence penalty (without scaling) is $total_orthog")
 
         open(fpath, "w") do file
@@ -382,6 +384,6 @@ end
 # println()
 # test_large()
 
-test_adult()
+# test_adult()
 # test_adult_orthog()
-# test_adult_softorthog()
+test_adult_softorthog()
