@@ -47,30 +47,18 @@ The output is a dictionary, where each unique value `k` in the `s`-th column is
 a key in the dictionary, and the corresponding value is a matrix whose rows are
 all the rows in `A` whose value in the `s`-th column is `k`.
 """
-function partition_groups(A, s::Int, n_groups::Int)
-    # Define the groups. The element type for all keys and values is the
-    # element type of `A`.
-    groups = []
-    for n=1:n_groups push!(groups, Set()) end
-    num_rows = size(A, 1)
-    for r=1:num_rows
-        row = A[r, :]
-        # Get the unique value `k` (see the docstring for more detail)
-        if n_groups == 2
-            k = max(row[s] + 1, 1) # handles boolean data - this will go from {-1, 1} to {1, 2}
-        else 
-            k = row[s]
-        end
-        # The dictionary doesn't yet have this key - add it to the dictionary
-        push!(groups[Int(k)], r)
-    end
+function partition_groups(A, s)
+    data_copy = hcat(DataFrame(A), DataFrame(s))
+    data_copy[!, :row_idx] = 1:size(data_copy, 1)
+    gdf = groupby(data_copy, names(s))
+    groups = [g[:row_idx] for g in gdf]
     groups
 end
 
 
 function FairGLRM(A, losses::Array, rx::Array, ry::Array, rkx::Array, rky::Array, k::Int, s, group_functional::GroupFunctional;
                   X = randn(k,size(A,1)), Y = randn(k,embedding_dim(losses)),
-                  Z = partition_groups(A, s, length(group_functional.weights)),
+                  Z = partition_groups(A, s),
                   obs = nothing,                                    # [(i₁,j₁), (i₂,j₂), ... (iₒ,jₒ)]
                   observed_features = fill(1:size(A,2), size(A,1)), # [1:n, 1:n, ... 1:n] m times
                   observed_examples = fill(1:size(A,1), size(A,2)), # [1:m, 1:m, ... 1:m] n times
@@ -119,4 +107,28 @@ function FairGLRM(A, losses::Array, rx::Array, ry::Array, rkx::Array, rky::Array
         add_offset!(glrm)
     end
     return glrm
+end
+
+function equality_of_opportunity(A::DataFrame, losses::Array, rx::Array, ry::Array, target_features::Vector{Symbol}, k::Int, s, group_functional::GroupFunctional,
+        regscale::Float64;
+        X = randn(k,size(A,1)), Y = randn(k,embedding_dim(losses)),
+        Z = partition_groups(A, s),
+        obs = nothing,                                    # [(i₁,j₁), (i₂,j₂), ... (iₒ,jₒ)]
+        observed_features = fill(1:size(A,2), size(A,1)), # [1:n, 1:n, ... 1:n] m times
+        observed_examples = fill(1:size(A,1), size(A,2)), # [1:m, 1:m, ... 1:m] n times
+        offset = false, scale = false,
+        checknan = true, sparse_na = true)
+    df = copy(A)
+    df[!, :row_idx] = 1:size(df, 1)
+    gdf = groupby(df, target_features; sort = true)
+    groups = gdf[2][:row_idx]
+    df = nothing
+    # rkx = SeparationReg(scale, s, convert(Matrix, A[!, target_features]),
+    #     groups, HSICReg, )
+    y = A[!, target_features]
+    rkx = [SeparationReg(regscale, convert(Array, s), convert(Array, y), groups, regtype, get_nfsic(CuArray(convert(Array, s)), (CuArray(X[i, :])))) for i=1:k]
+    FairGLRM(A, losses, rx, ry, rkx, ZeroColReg(), k, s, group_functional;
+        X=X, Y=Y, Z=Z, obs=obs, observed_features=observed_features,
+        observed_examples=observed_examples, offset=offset, scale=scale,
+        checknan=checknan, sparse_na=sparse_na)
 end
